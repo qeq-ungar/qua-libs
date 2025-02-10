@@ -27,7 +27,7 @@ class NVExperiment:
         self.counts_dark = None
         self.iteration = None
 
-    def add_pulse(self, name, element, length, amplitude):
+    def add_pulse(self, name, element, amplitude):
         """
         Adds a type "microwave" command to the experiment, with length in `u.ns` on the
         desired `element`.
@@ -38,9 +38,20 @@ class NVExperiment:
             length (int): time of pulse in ns
             amplitude (float?): amplitude of pulse
         """
-        self.commands.append(
-            {"type": "microwave", "element": element, "name": name, "length": length, "amplitude": amplitude}
-        )
+        self.commands.append({"type": "pulse", "element": element, "name": name, "amplitude": amplitude})
+
+    def add_cw_drive(self, element, length, amplitude):
+        """
+        Adds a type "microwave" command to the experiment, with length in `u.ns` on the
+        desired `element`.
+
+        Args:
+            name (string): _description_
+            element (string): _description_
+            length (int): time of pulse in ns
+            amplitude (float?): amplitude of pulse
+        """
+        self.commands.append({"type": "cw", "element": element, "length": length, "amplitude": amplitude})
 
     def add_laser(self, name, length):
         """
@@ -126,7 +137,7 @@ class NVExperiment:
 
         # bright count cw odmr
         self.add_laser("laser_ON", readout_len)
-        self.add_pulse("cw", "NV", readout_len, amplitude)
+        self.add_cw_drive("NV", readout_len, amplitude)
         self.add_wait(wait_time)
         self.add_measure("long_readout", readout_len)
         # save bright counts
@@ -135,7 +146,7 @@ class NVExperiment:
 
         # dark count cw odmr
         self.add_align()
-        self.add_pulse("cw", "NV", readout_len, 0)
+        self.add_cw_drive("NV", readout_len, 0)
         self.add_laser("laser_ON", readout_len)
         self.add_wait(wait_time)
         self.add_measure("long_readout", readout_len)
@@ -177,19 +188,28 @@ class NVExperiment:
                         if command["type"] == "update_frequency":
                             update_frequency(command["element"], var)
 
-                        elif command["type"] == "microwave":
-                            play(command, command["element"], duration=command["length"] * u.ns)
+                        elif command["type"] == "pulse":
+                            play(command["name"] * amp(command["amplitude"]), command["element"])
+
+                        elif command["type"] == "cw":
+                            play(
+                                "cw" * amp(command["amplitude"]), command["element"], duration=command["length"] * u.ns
+                            )
 
                         elif command["type"] == "wait":
                             wait(command["duration"] * u.ns)
+
                         elif command["type"] == "laser":
-                            play(command, "AOM1", duration=self.pulses[command]["length"] * u.ns)
+                            play("laser_ON", "AOM1", duration=command["length"] * u.ns)
+
                         elif command["type"] == "measure":
                             measure(
                                 command["name"], "SPCM1", None, time_tagging.analog(times, command["meas_len"], counts)
                             )
+
                         elif command["type"] == "align":
                             align()
+
                         elif command["type"] == "save":
                             if command["dark"]:
                                 save(counts, counts_dark_st)
