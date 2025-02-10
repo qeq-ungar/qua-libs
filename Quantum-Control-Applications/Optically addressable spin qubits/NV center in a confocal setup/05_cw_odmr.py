@@ -72,7 +72,6 @@ with program() as cw_odmr:
             save(counts, counts_dark_st)  # save counts on stream
 
             wait(wait_between_runs * u.ns)
-
             save(n, n_st)  # save number of iteration inside for_loop
 
     with stream_processing():
