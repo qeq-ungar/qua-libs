@@ -1,3 +1,5 @@
+from datetime import datetime
+import json
 from qm import QuantumMachinesManager
 from qm.qua import *
 from qm import SimulationConfig
@@ -11,8 +13,17 @@ from configuration import *
 class NVExperiment:
     def __init__(self):
         self.qmm = QuantumMachinesManager(host=qop_ip, cluster_name=cluster_name, octave=octave_config)
+
+        # containers for commands
         self.var_vec = None
+        self.commands = []
+        self.use_fixed = None
         self.measure_len = None
+
+        # containers for results
+        self.counts = None
+        self.counts_dark = None
+        self.iteration = None
 
     def add_pulse(self, name, element, length, amplitude):
         """
@@ -130,14 +141,15 @@ class NVExperiment:
 
     def create_experiment(self, n_avg=100_000):
         """
-        Runs the NV experiment with the specified configuration.
+        Creates the Quantum Machine program for the experiment, and returns the
+        experiment object as a qua `program`.
 
-        Parameters:
-        use_fixed (bool): If True, a fixed variable type is used;
-          otherwise, an integer variable type is used. Use fixed-type if
-          looping over floats, like in power Rabi.
+        Args:
+            n_avg (int, optional): Number of averages for each data acquisition point. Defaults to 100_000.
+
+        Returns:
+            program: The QUA program for the experiment defined by this class's commands.
         """
-
         # Code to run the NV experiment
         with program() as experiment:
             # generic logic
@@ -194,7 +206,7 @@ class NVExperiment:
 
     def simulate_experiment(self, n_avg=100_000, **kwargs):
         """
-        Simulates the experiment using the provided configuration.
+        Simulates the experiment using the configuration defined by this class.
 
         Parameters:
         kwargs (dict): Additional parameters to pass to the simulation
@@ -218,12 +230,18 @@ class NVExperiment:
 
         # Open the quantum machine
         qm = self.qmm.open_qm(config)
+
         # Send the QUA program to the OPX, which compiles and executes it
         job = qm.execute(expt)
-        # Get results from QUA program
-        mode = kwargs.get("mode", "live")
+
+        # get some optional keyword arguments for advanced features
+        live = kwargs.get("live", True)
+        offset_freq = kwargs.get("offset_freq", 0)
+
+        # Fetch results
+        mode = "live" if live else "wait_for_all"
         results = fetching_tool(job, data_list=["counts", "counts_dark", "iteration"], mode=mode)
-        if mode == "live":
+        if live:
             # Live plotting
             fig = plt.figure()
             interrupt_on_close(fig, job)  # Interrupts the job when closing the figure
@@ -236,11 +254,13 @@ class NVExperiment:
                 # Plot data
                 plt.cla()
                 plt.plot(
-                    (NV_LO_freq * 0 + self.var_vec) / u.MHz, counts / 1000 / (readout_len * 1e-9), label="photon counts"
+                    (offset_freq + self.var_vec) / u.MHz,
+                    counts / 1000 / (self.measure_len * 1e-9),
+                    label="photon counts",
                 )
                 plt.plot(
-                    (NV_LO_freq * 0 + self.var_vec) / u.MHz,
-                    counts_dark / 1000 / (readout_len * 1e-9),
+                    (offset_freq + self.var_vec) / u.MHz,
+                    counts_dark / 1000 / (self.measure_len * 1e-9),
                     label="dark counts",
                 )
                 plt.xlabel("MW frequency [MHz]")
@@ -248,20 +268,45 @@ class NVExperiment:
                 plt.title("ODMR")
                 plt.legend()
                 plt.pause(0.1)
+        else:
+            # Get results from QUA program
+            results.wait_for_all_values()
+            # Fetch results
+            counts, counts_dark, iteration = results.fetch_all()
 
-    def save_results(self, filename):
-        # Code to save the results to a file
-        pass
+        self.counts = counts
+        self.counts_dark = counts_dark
+        self.iteration = iteration
 
-    def load_results(self, filename):
-        # Code to load results from a file
-        pass
+    def save(self, filename=None):
+        """
+        Saves the experiment configuration to a JSON file.
 
+        Args:
+            filename (string): Path to the JSON file to save, defaults to a timestamped filename if
+                none is provided
+        """
+        attributes = {k: v for k, v in self.__dict__.items() if k != "qmm"}
+        if filename is None:
+            filename = f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
-# Example usage
-if __name__ == "__main__":
-    config = {}  # Define your configuration here
-    experiment = NVExperiment(config)
-    experiment.run_experiment()
-    experiment.process_results()
-    experiment.save_results("results.txt")
+        try:
+            with open(filename, "w") as f:
+                json.dump(attributes, f)
+        except (OSError, IOError) as e:
+            print(f"Error saving file: {e}")
+
+    def load(self, filename):
+        """
+        Loads the experiment configuration from a JSON file.
+
+        Args:
+            filename (string): Path to the JSON file to load
+        """
+        try:
+            with open(filename, "r") as f:
+                attributes = json.load(f)
+            for k, v in attributes.items():
+                self.__dict__[k] = v
+        except (OSError, IOError, FileNotFoundError) as e:
+            print(f"Error loading file: {e}")
