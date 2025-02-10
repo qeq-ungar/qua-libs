@@ -1,5 +1,7 @@
 from datetime import datetime
 import json
+import numpy as np
+
 from qm import QuantumMachinesManager
 from qm.qua import *
 from qm import SimulationConfig
@@ -249,13 +251,16 @@ class NVExperiment:
 
         # get some optional keyword arguments for advanced features
         live = kwargs.get("live", True)
-        offset_freq = kwargs.get("offset_freq", 0)
 
         # Fetch results
         mode = "live" if live else "wait_for_all"
         results = fetching_tool(job, data_list=["counts", "counts_dark", "iteration"], mode=mode)
         if live:
-            # Live plotting
+            # Live plotting kwargs
+            offset_freq = kwargs.get("offset_freq", 0)
+            title = kwargs.get("title", "Data Acquisition")
+            xlabel = kwargs.get("xlabel", "Dependent Variable")
+
             fig = plt.figure()
             interrupt_on_close(fig, job)  # Interrupts the job when closing the figure
 
@@ -276,9 +281,9 @@ class NVExperiment:
                     counts_dark / 1000 / (self.measure_len * 1e-9),
                     label="dark counts",
                 )
-                plt.xlabel("MW frequency [MHz]")
+                plt.xlabel(xlabel)
                 plt.ylabel("Intensity [kcps]")
-                plt.title("ODMR")
+                plt.title(title)
                 plt.legend()
                 plt.pause(0.1)
         else:
@@ -305,7 +310,7 @@ class NVExperiment:
 
         try:
             with open(filename, "w") as f:
-                json.dump(attributes, f)
+                json.dump(attributes, f, cls=NumpyEncoder)
         except (OSError, IOError) as e:
             print(f"Error saving file: {e}")
 
@@ -323,3 +328,16 @@ class NVExperiment:
                 self.__dict__[k] = v
         except (OSError, IOError, FileNotFoundError) as e:
             print(f"Error loading file: {e}")
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """Special json encoder for numpy types"""
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
