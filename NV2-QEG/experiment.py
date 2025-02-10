@@ -139,13 +139,14 @@ class NVExperiment:
         self.add_measure("long_readout", readout_len)
         self.add_save(dark=True)
 
-    def create_experiment(self, n_avg=100_000):
+    def create_experiment(self, n_avg):
         """
         Creates the Quantum Machine program for the experiment, and returns the
-        experiment object as a qua `program`.
+        experiment object as a qua `program`. This is used by the `execute_experiment` and
+        `simulate_experiment` methods.
 
         Args:
-            n_avg (int, optional): Number of averages for each data acquisition point. Defaults to 100_000.
+            n_avg (int, optional): Number of averages for each data acquisition point.
 
         Returns:
             program: The QUA program for the experiment defined by this class's commands.
@@ -224,6 +225,18 @@ class NVExperiment:
         return job
 
     def execute_experiment(self, n_avg=100_000, **kwargs):
+        """
+        Executes the experiment using the configuration defined by this class. The results are
+        stored in the class instance. The results will be visualized live, but this can be
+        disabled by setting `live=False` as a keyword arguments. For each value in the variable
+        `var_vec`, the experiment will be run `n_avg` times.
+
+        Args:
+            n_avg (int, optional): The number of averages per point. Defaults to 100_000.
+
+        Raises:
+            ValueError: _description_
+        """
         if len(self.commands) == 0:
             raise ValueError("No commands have been added to the experiment.")
         expt = self.create_experiment(n_avg=n_avg)
@@ -288,7 +301,7 @@ class NVExperiment:
         """
         attributes = {k: v for k, v in self.__dict__.items() if k != "qmm"}
         if filename is None:
-            filename = f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            filename = f"expt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
         try:
             with open(filename, "w") as f:
