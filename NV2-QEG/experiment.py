@@ -100,7 +100,7 @@ class NVExperiment:
         """
         self.commands.append({"type": "save", "dark": dark})
 
-    def define_loop(self, var_vec):
+    def define_loop(self, var_vec, use_fixed=False):
         """
         Defines the loop over the variable vector.
 
@@ -109,7 +109,7 @@ class NVExperiment:
         """
         if len(var_vec) == 0:
             raise ValueError("Variable vector cannot be empty.")
-        self.use_fixed = any(not isinstance(x, int) for x in var_vec)
+        self.use_fixed = use_fixed
         self.var_vec = var_vec
 
     def setup_cw_odmr(self, readout_len, wait_time=1_000, amplitude=1):
@@ -176,8 +176,10 @@ class NVExperiment:
                     for command in self.commands:
                         if command["type"] == "update_frequency":
                             update_frequency(command["element"], var)
+
                         elif command["type"] == "microwave":
-                            play(command, command["element"], duration=self.pulses[command]["length"] * u.ns)
+                            play(command, command["element"], duration=command["length"] * u.ns)
+
                         elif command["type"] == "wait":
                             wait(command["duration"] * u.ns)
                         elif command["type"] == "laser":
