@@ -12,6 +12,7 @@ class NVExperiment:
     def __init__(self):
         self.qmm = QuantumMachinesManager(host=qop_ip, cluster_name=cluster_name, octave=octave_config)
         self.var_vec = None
+        self.measure_len = None
 
     def add_pulse(self, name, element, length, amplitude):
         """
@@ -63,6 +64,10 @@ class NVExperiment:
             duration (int): time of measurement acquisition in ?ns?
         """
         self.commands.append({"type": "measure", "name": name, "meas_len": meas_len})
+        if self.measure_len is None:
+            self.measure_len = meas_len
+        elif self.measure_len != meas_len:
+            raise ValueError("Inconsistent measurement lengths.")
 
     def add_frequency_update(self, element):
         """
