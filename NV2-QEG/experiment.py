@@ -1,3 +1,7 @@
+from datetime import datetime
+import json
+import numpy as np
+
 from qm import QuantumMachinesManager
 from qm.qua import *
 from qm import SimulationConfig
@@ -11,9 +15,19 @@ from configuration import *
 class NVExperiment:
     def __init__(self):
         self.qmm = QuantumMachinesManager(host=qop_ip, cluster_name=cluster_name, octave=octave_config)
-        self.var_vec = None
 
-    def add_pulse(self, name, element, length, amplitude):
+        # containers for commands
+        self.var_vec = None
+        self.commands = []
+        self.use_fixed = None
+        self.measure_len = None
+
+        # containers for results
+        self.counts = None
+        self.counts_dark = None
+        self.iteration = None
+
+    def add_pulse(self, name, element, amplitude):
         """
         Adds a type "microwave" command to the experiment, with length in `u.ns` on the
         desired `element`.
@@ -24,9 +38,20 @@ class NVExperiment:
             length (int): time of pulse in ns
             amplitude (float?): amplitude of pulse
         """
-        self.commands.append(
-            {"type": "microwave", "element": element, "name": name, "length": length, "amplitude": amplitude}
-        )
+        self.commands.append({"type": "pulse", "element": element, "name": name, "amplitude": amplitude})
+
+    def add_cw_drive(self, element, length, amplitude):
+        """
+        Adds a type "microwave" command to the experiment, with length in `u.ns` on the
+        desired `element`.
+
+        Args:
+            name (string): _description_
+            element (string): _description_
+            length (int): time of pulse in ns
+            amplitude (float?): amplitude of pulse
+        """
+        self.commands.append({"type": "cw", "element": element, "length": length, "amplitude": amplitude})
 
     def add_laser(self, name, length):
         """
@@ -45,14 +70,15 @@ class NVExperiment:
         """
         self.commands.append({"type": "align"})
 
-    def add_wait(self, duration):
+    def add_wait(self, duration, variable=False):
         """
         Adds a type "wait" command to the experiment.
 
         Args:
             duration (int): time to wait in ns
+            variable (bool): If True, the wait time is a variable defined by the loop.
         """
-        self.commands.append({"type": "wait", "duration": duration})
+        self.commands.append({"type": "wait", "duration": duration, "variable": variable})
 
     def add_measure(self, name="SPCM", meas_len=1000):
         """
@@ -63,6 +89,10 @@ class NVExperiment:
             duration (int): time of measurement acquisition in ?ns?
         """
         self.commands.append({"type": "measure", "name": name, "meas_len": meas_len})
+        if self.measure_len is None:
+            self.measure_len = meas_len
+        elif self.measure_len != meas_len:
+            raise ValueError("Inconsistent measurement lengths.")
 
     def add_frequency_update(self, element):
         """
@@ -82,7 +112,7 @@ class NVExperiment:
         """
         self.commands.append({"type": "save", "dark": dark})
 
-    def define_loop(self, var_vec):
+    def define_loop(self, var_vec, use_fixed=False):
         """
         Defines the loop over the variable vector.
 
@@ -91,7 +121,7 @@ class NVExperiment:
         """
         if len(var_vec) == 0:
             raise ValueError("Variable vector cannot be empty.")
-        self.use_fixed = any(not isinstance(x, int) for x in var_vec)
+        self.use_fixed = use_fixed
         self.var_vec = var_vec
 
     def setup_cw_odmr(self, readout_len, wait_time=1_000, amplitude=1):
@@ -108,7 +138,7 @@ class NVExperiment:
 
         # bright count cw odmr
         self.add_laser("laser_ON", readout_len)
-        self.add_pulse("cw", "NV", readout_len, amplitude)
+        self.add_cw_drive("NV", readout_len, amplitude)
         self.add_wait(wait_time)
         self.add_measure("long_readout", readout_len)
         # save bright counts
@@ -117,22 +147,24 @@ class NVExperiment:
 
         # dark count cw odmr
         self.add_align()
-        self.add_pulse("cw", "NV", readout_len, 0)
+        self.add_cw_drive("NV", readout_len, 0)
         self.add_laser("laser_ON", readout_len)
         self.add_wait(wait_time)
         self.add_measure("long_readout", readout_len)
         self.add_save(dark=True)
 
-    def create_experiment(self, n_avg=100_000):
+    def create_experiment(self, n_avg):
         """
-        Runs the NV experiment with the specified configuration.
+        Creates the Quantum Machine program for the experiment, and returns the
+        experiment object as a qua `program`. This is used by the `execute_experiment` and
+        `simulate_experiment` methods.
 
-        Parameters:
-        use_fixed (bool): If True, a fixed variable type is used;
-          otherwise, an integer variable type is used. Use fixed-type if
-          looping over floats, like in power Rabi.
+        Args:
+            n_avg (int, optional): Number of averages for each data acquisition point.
+
+        Returns:
+            program: The QUA program for the experiment defined by this class's commands.
         """
-
         # Code to run the NV experiment
         with program() as experiment:
             # generic logic
@@ -156,18 +188,29 @@ class NVExperiment:
                     for command in self.commands:
                         if command["type"] == "update_frequency":
                             update_frequency(command["element"], var)
-                        elif command["type"] == "microwave":
-                            play(command, command["element"], duration=self.pulses[command]["length"] * u.ns)
+
+                        elif command["type"] == "pulse":
+                            play(command["name"] * amp(command["amplitude"]), command["element"])
+
+                        elif command["type"] == "cw":
+                            if command["variable"]:
+                                duration = var
+                            play("cw" * amp(command["amplitude"]), command["element"], duration=duration * u.ns)
+
                         elif command["type"] == "wait":
                             wait(command["duration"] * u.ns)
+
                         elif command["type"] == "laser":
-                            play(command, "AOM1", duration=self.pulses[command]["length"] * u.ns)
+                            play("laser_ON", "AOM1", duration=command["length"] * u.ns)
+
                         elif command["type"] == "measure":
                             measure(
                                 command["name"], "SPCM1", None, time_tagging.analog(times, command["meas_len"], counts)
                             )
+
                         elif command["type"] == "align":
                             align()
+
                         elif command["type"] == "save":
                             if command["dark"]:
                                 save(counts, counts_dark_st)
@@ -189,7 +232,7 @@ class NVExperiment:
 
     def simulate_experiment(self, n_avg=100_000, **kwargs):
         """
-        Simulates the experiment using the provided configuration.
+        Simulates the experiment using the configuration defined by this class.
 
         Parameters:
         kwargs (dict): Additional parameters to pass to the simulation
@@ -207,19 +250,40 @@ class NVExperiment:
         return job
 
     def execute_experiment(self, n_avg=100_000, **kwargs):
+        """
+        Executes the experiment using the configuration defined by this class. The results are
+        stored in the class instance. The results will be visualized live, but this can be
+        disabled by setting `live=False` as a keyword arguments. For each value in the variable
+        `var_vec`, the experiment will be run `n_avg` times.
+
+        Args:
+            n_avg (int, optional): The number of averages per point. Defaults to 100_000.
+
+        Raises:
+            ValueError: _description_
+        """
         if len(self.commands) == 0:
             raise ValueError("No commands have been added to the experiment.")
         expt = self.create_experiment(n_avg=n_avg)
 
         # Open the quantum machine
         qm = self.qmm.open_qm(config)
+
         # Send the QUA program to the OPX, which compiles and executes it
         job = qm.execute(expt)
-        # Get results from QUA program
-        mode = kwargs.get("mode", "live")
+
+        # get some optional keyword arguments for advanced features
+        live = kwargs.get("live", True)
+
+        # Fetch results
+        mode = "live" if live else "wait_for_all"
         results = fetching_tool(job, data_list=["counts", "counts_dark", "iteration"], mode=mode)
-        if mode == "live":
-            # Live plotting
+        if live:
+            # Live plotting kwargs
+            offset_freq = kwargs.get("offset_freq", 0)
+            title = kwargs.get("title", "Data Acquisition")
+            xlabel = kwargs.get("xlabel", "Dependent Variable")
+
             fig = plt.figure()
             interrupt_on_close(fig, job)  # Interrupts the job when closing the figure
 
@@ -231,32 +295,72 @@ class NVExperiment:
                 # Plot data
                 plt.cla()
                 plt.plot(
-                    (NV_LO_freq * 0 + self.var_vec) / u.MHz, counts / 1000 / (readout_len * 1e-9), label="photon counts"
+                    (offset_freq + self.var_vec) / u.MHz,
+                    counts / 1000 / (self.measure_len * 1e-9),
+                    label="photon counts",
                 )
                 plt.plot(
-                    (NV_LO_freq * 0 + self.var_vec) / u.MHz,
-                    counts_dark / 1000 / (readout_len * 1e-9),
+                    (offset_freq + self.var_vec) / u.MHz,
+                    counts_dark / 1000 / (self.measure_len * 1e-9),
                     label="dark counts",
                 )
-                plt.xlabel("MW frequency [MHz]")
+                plt.xlabel(xlabel)
                 plt.ylabel("Intensity [kcps]")
-                plt.title("ODMR")
+                plt.title(title)
                 plt.legend()
                 plt.pause(0.1)
+        else:
+            # Get results from QUA program
+            results.wait_for_all_values()
+            # Fetch results
+            counts, counts_dark, iteration = results.fetch_all()
 
-    def save_results(self, filename):
-        # Code to save the results to a file
-        pass
+        self.counts = counts
+        self.counts_dark = counts_dark
+        self.iteration = iteration
 
-    def load_results(self, filename):
-        # Code to load results from a file
-        pass
+    def save(self, filename=None):
+        """
+        Saves the experiment configuration to a JSON file.
+
+        Args:
+            filename (string): Path to the JSON file to save, defaults to a timestamped filename if
+                none is provided
+        """
+        attributes = {k: v for k, v in self.__dict__.items() if k != "qmm"}
+        if filename is None:
+            filename = f"expt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+        try:
+            with open(filename, "w") as f:
+                json.dump(attributes, f, cls=NumpyEncoder)
+        except (OSError, IOError) as e:
+            print(f"Error saving file: {e}")
+
+    def load(self, filename):
+        """
+        Loads the experiment configuration from a JSON file.
+
+        Args:
+            filename (string): Path to the JSON file to load
+        """
+        try:
+            with open(filename, "r") as f:
+                attributes = json.load(f)
+            for k, v in attributes.items():
+                self.__dict__[k] = v
+        except (OSError, IOError, FileNotFoundError) as e:
+            print(f"Error loading file: {e}")
 
 
-# Example usage
-if __name__ == "__main__":
-    config = {}  # Define your configuration here
-    experiment = NVExperiment(config)
-    experiment.run_experiment()
-    experiment.process_results()
-    experiment.save_results("results.txt")
+class NumpyEncoder(json.JSONEncoder):
+    """Special json encoder for numpy types"""
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
