@@ -19,26 +19,41 @@ class NVExperiment:
         # containers for commands
         self.var_vec = None
         self.commands = []
-        self.use_fixed = None
+        self.use_fixed = False
         self.measure_len = None
+        self.initialize = False
 
         # containers for results
-        self.counts = None
-        self.counts_dark = None
+        self.counts0 = None
+        self.counts_ref0 = None
+        self.counts1 = None
+        self.counts_ref1 = None
         self.iteration = None
 
-    def add_pulse(self, name, element, amplitude):
+    def add_pulse(self, name, element, amplitude, variable=False, cycle=False):
         """
         Adds a type "microwave" command to the experiment, with length in `u.ns` on the
         desired `element`.
 
         Args:
-            name (string): _description_
-            element (string): _description_
-            length (int): time of pulse in ns
+            name (string): Name of the pulse. 8 predefined pulses are avaialble,
+                "+/-" * "x/y" * "90/180", eg "y180" or "-x90"
+            element (string): Channel to play the pulse on, like "NV" or "C13" in the config
             amplitude (float?): amplitude of pulse
+            variable (bool): If True, the pulse amplitude is a variable defined by the loop.
         """
-        self.commands.append({"type": "pulse", "element": element, "name": name, "amplitude": amplitude})
+        self.commands.append(
+            {
+                "type": "pulse",
+                "element": element,
+                "name": name,
+                "amplitude": amplitude,
+                "variable": variable,
+                "cycle": cycle,
+            }
+        )
+        if variable:
+            self.use_fixed = True
 
     def add_cw_drive(self, element, length, amplitude):
         """
@@ -46,10 +61,9 @@ class NVExperiment:
         desired `element`.
 
         Args:
-            name (string): _description_
-            element (string): _description_
+            element (string): Channel to play the pulse on, like "NV" or "C13" in the config
             length (int): time of pulse in ns
-            amplitude (float?): amplitude of pulse
+            amplitude (float): amplitude of pulse
         """
         self.commands.append({"type": "cw", "element": element, "length": length, "amplitude": amplitude})
 
@@ -103,16 +117,13 @@ class NVExperiment:
         """
         self.commands.append({"type": "update_frequency", "element": element})
 
-    def add_save(self, dark=False):
+    def add_initialization(self):
         """
-        Adds a type "save" command to the experiment.
-
-        Args:
-            dark (bool): If True, saves dark counts, otherwise saves bright counts
+        Adds a laser pulse to polarize the system before the first sequence. This is controlled with the config file.
         """
-        self.commands.append({"type": "save", "dark": dark})
+        self.initialize = True
 
-    def define_loop(self, var_vec, use_fixed=False):
+    def define_loop(self, var_vec):
         """
         Defines the loop over the variable vector.
 
@@ -121,10 +132,9 @@ class NVExperiment:
         """
         if len(var_vec) == 0:
             raise ValueError("Variable vector cannot be empty.")
-        self.use_fixed = use_fixed
         self.var_vec = var_vec
 
-    def setup_cw_odmr(self, readout_len, wait_time=1_000, amplitude=1):
+    def setup_cw_odmr(self, readout_len=long_meas_len_1, wait_time=1_000, amplitude=1):
         """
         A pre-fab collection of commands to run a continuous wave ODMR experiment.
 
@@ -136,24 +146,79 @@ class NVExperiment:
         self.add_align()
         self.add_frequency_update("NV")
 
-        # bright count cw odmr
         self.add_laser("laser_ON", readout_len)
         self.add_cw_drive("NV", readout_len, amplitude)
+
         self.add_wait(wait_time)
         self.add_measure("long_readout", readout_len)
-        # save bright counts
-        self.add_save()
-        self.add_wait(wait_between_runs)
 
-        # dark count cw odmr
-        self.add_align()
-        self.add_cw_drive("NV", readout_len, 0)
-        self.add_laser("laser_ON", readout_len)
-        self.add_wait(wait_time)
-        self.add_measure("long_readout", readout_len)
-        self.add_save(dark=True)
+    def _translate_command(self, command, var, times, counts, counts_st, invert):
+        """
+        Helper function whcih translates a command dictionary into a QUA command. Plays qua commands, can only
+        be called from within a qua program.
 
-    def create_experiment(self, n_avg):
+        Args:
+            command (dict): Command dictionary
+
+        Returns:
+            qua command: The QUA command
+        """
+        match command["type"]:
+            case "update_frequency":
+                update_frequency(command["element"], var)
+
+            case "pulse":
+                amplitude = var if command["variable"] else command["amplitude"]
+                name = command["name"]
+                if invert and command["cycle"]:
+                    if name[0] == "-":
+                        name = name[1:]
+                    else:
+                        name = "-" + name
+                play(name * amp(amplitude), command["element"])
+
+            case "cw":
+                duration = var if command["variable"] else command["length"]
+                play("cw" * amp(command["amplitude"]), command["element"], duration=duration * u.ns)
+
+            case "wait":
+                duration = var if command["variable"] else command["length"]
+                wait(duration * u.ns)
+
+            case "laser":
+                play("laser_ON", "AOM1", duration=command["length"] * u.ns)
+
+            case "measure":
+                measure(
+                    command["name"],
+                    "SPCM1",
+                    None,
+                    time_tagging.analog(times, command["meas_len"], counts),
+                )
+                save(counts, counts_st)
+
+            case "align":
+                return align()
+
+    def _reference_counts(self, times, counts, counts_st, pi_amp):
+        """
+        Wrapper for measuring reference counts. Plays qua commands, can only be called from
+        within a qua program.
+
+        """
+        wait(wait_between_runs * u.ns)
+        align()
+
+        play("x180" * amp(pi_amp), "NV")  # Pi-pulse toggle
+        align()
+
+        play("laser_ON", "AOM1")
+        measure("readout", "SPCM1", None, time_tagging.analog(times, self.measure_len, counts))
+
+        save(counts, counts_st)  # save counts
+        wait(wait_between_runs * u.ns, "AOM1")
+
+    def create_experiment(self, n_avg, measure_contrast):
         """
         Creates the Quantum Machine program for the experiment, and returns the
         experiment object as a qua `program`. This is used by the `execute_experiment` and
@@ -161,17 +226,27 @@ class NVExperiment:
 
         Args:
             n_avg (int, optional): Number of averages for each data acquisition point.
+            measure_contrast (bool): If True, only the |0> state is measured, if False, both |0> and |1> are measured.
 
         Returns:
             program: The QUA program for the experiment defined by this class's commands.
         """
-        # Code to run the NV experiment
+
         with program() as experiment:
-            # generic logic
-            counts = declare(int)  # variable for number of counts
-            counts_st = declare_stream()  # stream for counts
-            counts_dark_st = declare_stream()  # stream for counts
-            times = declare(int, size=100)  # QUA vector for storing the time-tags
+
+            # define the variables and datastreams
+            counts0 = declare(int)
+            counts0_st = declare_stream()
+            counts_ref0 = declare(int)
+            counts_ref0_st = declare_stream()
+
+            if not measure_contrast:
+                counts1 = declare(int)
+                counts1_st = declare_stream()
+                counts_ref1 = declare(int)
+                counts_ref1_st = declare_stream()
+
+            times = declare(int, size=100)  # QUA vector for storing time-tags
 
             if self.use_fixed:
                 var = declare(fixed)
@@ -179,92 +254,91 @@ class NVExperiment:
                 var = declare(int)
 
             n = declare(int)  # averaging var
-            n_st = declare_stream()  # stream for number of iterations\
+            n_st = declare_stream()  # stream for number of iterations
 
-            # looping abstraction for freq, time, phase, and amplitude
-            with for_(n, 0, n < n_avg, n + 1):
-                with for_(*from_array(var, self.var_vec)):
-                    # do some logic
+            # start the experiment
+            if self.initialize:
+                play("laser_ON", "AOM1")
+                wait(wait_for_initialization * u.ns, "AOM1")
+
+            with for_(n, 0, n < n_avg, n + 1):  # averaging loop
+                with for_(*from_array(var, self.var_vec)):  # scanning loop
+
+                    # do the sequence as defined by the commands, measure |0>
                     for command in self.commands:
-                        if command["type"] == "update_frequency":
-                            update_frequency(command["element"], var)
+                        self._translate_command(command, var, times, counts0, counts0_st, invert=False)
 
-                        elif command["type"] == "pulse":
-                            play(command["name"] * amp(command["amplitude"]), command["element"])
+                    # measure reference counts for |0>
+                    self._reference_counts(times, counts_ref0, counts_ref0_st, pi_amp=0)
 
-                        elif command["type"] == "cw":
-                            if command["variable"]:
-                                duration = var
-                            play("cw" * amp(command["amplitude"]), command["element"], duration=duration * u.ns)
+                    # redo above sequennce with a pi-pulse, measuring |1>, if desired
+                    if not measure_contrast:
+                        for command in self.commands:
+                            self._translate_command(command, var, times, counts1, counts1_st, invert=True)
 
-                        elif command["type"] == "wait":
-                            wait(command["duration"] * u.ns)
-
-                        elif command["type"] == "laser":
-                            play("laser_ON", "AOM1", duration=command["length"] * u.ns)
-
-                        elif command["type"] == "measure":
-                            measure(
-                                command["name"], "SPCM1", None, time_tagging.analog(times, command["meas_len"], counts)
-                            )
-
-                        elif command["type"] == "align":
-                            align()
-
-                        elif command["type"] == "save":
-                            if command["dark"]:
-                                save(counts, counts_dark_st)
-                            else:
-                                save(counts, counts_st)
+                        self._reference_counts(times, counts_ref1, counts_ref1_st, pi_amp=1)
 
                     # always end with a wait and saving the number of iterations
                     wait(wait_between_runs * u.ns)
-                    save(n, n_st)
+                save(n, n_st)
 
             with stream_processing():
                 # save the data from the datastream as 1D arrays on the OPx, with a
                 # built in running average
-                counts_st.buffer(len(self.var_vec)).average().save("counts")
-                counts_dark_st.buffer(len(self.var_vec)).average().save("counts_dark")
+                counts0_st.buffer(len(self.var_vec)).average().save("counts0")
+                counts_ref0_st.buffer(len(self.var_vec)).average().save("counts_ref0")
+                if not measure_contrast:
+                    counts1_st.buffer(len(self.var_vec)).average().save("counts1")
+                    counts_ref1_st.buffer(len(self.var_vec)).average().save("counts_ref1")
                 n_st.save("iteration")
 
         return experiment
 
-    def simulate_experiment(self, n_avg=100_000, **kwargs):
+    def simulate_experiment(self, n_avg=100_000, measure_contrast=True, **kwargs):
         """
         Simulates the experiment using the configuration defined by this class.
 
         Parameters:
-        kwargs (dict): Additional parameters to pass to the simulation
+            n_avg (int, optional): The number of averages per point. Defaults to 100_000.
+            measure_contrast (bool): If True, only the |0> state is measured, if False, both |0> and |1> are measured.
+            kwargs (dict): Additional parameters to pass to the simulation
+
+        Raises:
+            ValueError: Throws an error if insufficient details about the experiment are defined.
         """
         if len(self.commands) == 0:
             raise ValueError("No commands have been added to the experiment.")
         if self.var_vec is None:
             raise ValueError("No variable vector has been defined.")
 
-        expt = self.create_experiment(n_avg=n_avg)
+        expt = self.create_experiment(n_avg=n_avg, measure_contrast=measure_contrast)
         simulation_config = SimulationConfig(duration=10_000)  # In clock cycles = 4ns
         job = self.qmm.simulate(config, expt, simulation_config)
         job.get_simulated_samples().con1.plot()
         plt.show()
         return job
 
-    def execute_experiment(self, n_avg=100_000, **kwargs):
+    def execute_experiment(self, n_avg=100_000, measure_contrast=True, **kwargs):
         """
         Executes the experiment using the configuration defined by this class. The results are
         stored in the class instance. The results will be visualized live, but this can be
         disabled by setting `live=False` as a keyword arguments. For each value in the variable
         `var_vec`, the experiment will be run `n_avg` times.
 
-        Args:
+        Parameters:
             n_avg (int, optional): The number of averages per point. Defaults to 100_000.
+            measure_contrast (bool): If True, only the |0> state is measured, if False, both |0> and |1> are measured.
+            kwargs (dict): Additional parameters to pass to the simulation
 
         Raises:
-            ValueError: _description_
+            ValueError: Throws an error if insufficient details about the experiment are defined.
         """
         if len(self.commands) == 0:
             raise ValueError("No commands have been added to the experiment.")
-        expt = self.create_experiment(n_avg=n_avg)
+        if self.var_vec is None:
+            raise ValueError("No variable vector has been defined.")
+
+        expt = self.create_experiment(n_avg=n_avg, measure_contrast=measure_contrast)
 
         # Open the quantum machine
         qm = self.qmm.open_qm(config)
@@ -275,9 +349,18 @@ class NVExperiment:
         # get some optional keyword arguments for advanced features
         live = kwargs.get("live", True)
 
-        # Fetch results
+        # set the mode for fetching the data
         mode = "live" if live else "wait_for_all"
-        results = fetching_tool(job, data_list=["counts", "counts_dark", "iteration"], mode=mode)
+
+        # set the data lists being generated to later fetch
+        data_list = ["counts0", "counts_ref0"]
+        if not measure_contrast:
+            data_list.extend(["counts1", "counts_ref1"])
+        data_list.append("iteration")
+
+        # create the fetch tool
+        results = fetching_tool(job, data_list=data_list, mode=mode)
+
         if live:
             # Live plotting kwargs
             offset_freq = kwargs.get("offset_freq", 0)
@@ -289,21 +372,37 @@ class NVExperiment:
 
             while results.is_processing():
                 # Fetch results
-                counts, counts_dark, iteration = results.fetch_all()
+                if measure_contrast:
+                    counts0, counts_ref0, iteration = results.fetch_all()
+                else:
+                    counts0, counts_ref0, counts1, counts_ref1, iteration = results.fetch_all()
                 # Progress bar
                 progress_counter(iteration, n_avg, start_time=results.get_start_time())
                 # Plot data
                 plt.cla()
                 plt.plot(
                     (offset_freq + self.var_vec) / u.MHz,
-                    counts / 1000 / (self.measure_len * 1e-9),
-                    label="photon counts",
+                    counts0 / 1000 / (self.measure_len * 1e-9),
+                    label="photon counts |0>",
                 )
                 plt.plot(
                     (offset_freq + self.var_vec) / u.MHz,
-                    counts_dark / 1000 / (self.measure_len * 1e-9),
-                    label="dark counts",
+                    counts_ref0 / 1000 / (self.measure_len * 1e-9),
+                    label="reference counts |0>",
                 )
+
+                if not measure_contrast:
+                    plt.plot(
+                        (offset_freq + self.var_vec) / u.MHz,
+                        counts1 / 1000 / (self.measure_len * 1e-9),
+                        label="photon counts |1>",
+                    )
+                    plt.plot(
+                        (offset_freq + self.var_vec) / u.MHz,
+                        counts_ref1 / 1000 / (self.measure_len * 1e-9),
+                        label="reference counts |1>",
+                    )
+
                 plt.xlabel(xlabel)
                 plt.ylabel("Intensity [kcps]")
                 plt.title(title)
@@ -313,10 +412,16 @@ class NVExperiment:
             # Get results from QUA program
             results.wait_for_all_values()
             # Fetch results
-            counts, counts_dark, iteration = results.fetch_all()
+            if measure_contrast:
+                counts0, counts_ref0, iteration = results.fetch_all()
+            else:
+                counts0, counts_ref0, counts1, counts_ref1, iteration = results.fetch_all()
 
-        self.counts = counts
-        self.counts_dark = counts_dark
+        self.counts0 = counts0
+        self.counts_ref0 = counts_ref0
+        if not measure_contrast:
+            self.counts1 = counts1
+            self.counts_ref1 = counts_ref1
         self.iteration = iteration
 
     def save(self, filename=None):
