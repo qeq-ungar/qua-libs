@@ -70,14 +70,15 @@ class NVExperiment:
         """
         self.commands.append({"type": "align"})
 
-    def add_wait(self, duration):
+    def add_wait(self, duration, variable=False):
         """
         Adds a type "wait" command to the experiment.
 
         Args:
             duration (int): time to wait in ns
+            variable (bool): If True, the wait time is a variable defined by the loop.
         """
-        self.commands.append({"type": "wait", "duration": duration})
+        self.commands.append({"type": "wait", "duration": duration, "variable": variable})
 
     def add_measure(self, name="SPCM", meas_len=1000):
         """
@@ -192,9 +193,9 @@ class NVExperiment:
                             play(command["name"] * amp(command["amplitude"]), command["element"])
 
                         elif command["type"] == "cw":
-                            play(
-                                "cw" * amp(command["amplitude"]), command["element"], duration=command["length"] * u.ns
-                            )
+                            if command["variable"]:
+                                duration = var
+                            play("cw" * amp(command["amplitude"]), command["element"], duration=duration * u.ns)
 
                         elif command["type"] == "wait":
                             wait(command["duration"] * u.ns)
