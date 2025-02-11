@@ -19,7 +19,7 @@ class NVExperiment:
         # containers for commands
         self.var_vec = None
         self.commands = []
-        self.use_fixed = None
+        self.use_fixed = False
         self.measure_len = None
 
         # containers for results
@@ -27,18 +27,23 @@ class NVExperiment:
         self.counts_dark = None
         self.iteration = None
 
-    def add_pulse(self, name, element, amplitude):
+    def add_pulse(self, name, element, amplitude, variable=False):
         """
         Adds a type "microwave" command to the experiment, with length in `u.ns` on the
         desired `element`.
 
         Args:
-            name (string): _description_
-            element (string): _description_
-            length (int): time of pulse in ns
+            name (string): Name of the pulse. 8 predefined pulses are avaialble,
+                "+/-" * "x/y" * "90/180", eg "y180" or "-x90"
+            element (string): Channel to play the pulse on, like "NV" or "C13" in the config
             amplitude (float?): amplitude of pulse
+            variable (bool): If True, the pulse amplitude is a variable defined by the loop.
         """
-        self.commands.append({"type": "pulse", "element": element, "name": name, "amplitude": amplitude})
+        self.commands.append(
+            {"type": "pulse", "element": element, "name": name, "amplitude": amplitude, "variable": variable}
+        )
+        if variable:
+            self.use_fixed = True
 
     def add_cw_drive(self, element, length, amplitude):
         """
@@ -46,10 +51,9 @@ class NVExperiment:
         desired `element`.
 
         Args:
-            name (string): _description_
-            element (string): _description_
+            element (string): Channel to play the pulse on, like "NV" or "C13" in the config
             length (int): time of pulse in ns
-            amplitude (float?): amplitude of pulse
+            amplitude (float): amplitude of pulse
         """
         self.commands.append({"type": "cw", "element": element, "length": length, "amplitude": amplitude})
 
@@ -112,7 +116,7 @@ class NVExperiment:
         """
         self.commands.append({"type": "save", "dark": dark})
 
-    def define_loop(self, var_vec, use_fixed=False):
+    def define_loop(self, var_vec):
         """
         Defines the loop over the variable vector.
 
@@ -121,10 +125,9 @@ class NVExperiment:
         """
         if len(var_vec) == 0:
             raise ValueError("Variable vector cannot be empty.")
-        self.use_fixed = use_fixed
         self.var_vec = var_vec
 
-    def setup_cw_odmr(self, readout_len, wait_time=1_000, amplitude=1):
+    def setup_cw_odmr(self, readout_len=long_meas_len_1, wait_time=1_000, amplitude=1):
         """
         A pre-fab collection of commands to run a continuous wave ODMR experiment.
 
@@ -186,40 +189,46 @@ class NVExperiment:
                 with for_(*from_array(var, self.var_vec)):
                     # do some logic
                     for command in self.commands:
-                        if command["type"] == "update_frequency":
-                            update_frequency(command["element"], var)
+                        match command["type"]:
 
-                        elif command["type"] == "pulse":
-                            play(command["name"] * amp(command["amplitude"]), command["element"])
+                            case "update_frequency":
+                                update_frequency(command["element"], var)
 
-                        elif command["type"] == "cw":
-                            if command["variable"]:
-                                duration = var
-                            play("cw" * amp(command["amplitude"]), command["element"], duration=duration * u.ns)
+                            case "pulse":
+                                amplitude = var if command["variable"] else command["amplitude"]
+                                play(command["name"] * amp(amplitude), command["element"])
 
-                        elif command["type"] == "wait":
-                            wait(command["duration"] * u.ns)
+                            case "cw":
+                                duration = var if command["variable"] else command["length"]
+                                play("cw" * amp(command["amplitude"]), command["element"], duration=duration * u.ns)
 
-                        elif command["type"] == "laser":
-                            play("laser_ON", "AOM1", duration=command["length"] * u.ns)
+                            case "wait":
+                                duration = var if command["variable"] else command["length"]
+                                wait(duration * u.ns)
 
-                        elif command["type"] == "measure":
-                            measure(
-                                command["name"], "SPCM1", None, time_tagging.analog(times, command["meas_len"], counts)
-                            )
+                            case "laser":
+                                play("laser_ON", "AOM1", duration=command["length"] * u.ns)
 
-                        elif command["type"] == "align":
-                            align()
+                            case "measure":
+                                measure(
+                                    command["name"],
+                                    "SPCM1",
+                                    None,
+                                    time_tagging.analog(times, command["meas_len"], counts),
+                                )
 
-                        elif command["type"] == "save":
-                            if command["dark"]:
-                                save(counts, counts_dark_st)
-                            else:
-                                save(counts, counts_st)
+                            case "align":
+                                align()
+
+                            case "save":
+                                if command["dark"]:
+                                    save(counts, counts_dark_st)
+                                else:
+                                    save(counts, counts_st)
 
                     # always end with a wait and saving the number of iterations
                     wait(wait_between_runs * u.ns)
-                    save(n, n_st)
+                save(n, n_st)
 
             with stream_processing():
                 # save the data from the datastream as 1D arrays on the OPx, with a
