@@ -9,7 +9,7 @@ import matplotlib
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
-from configuration import *
+from configuration_NV2QEG import *
 
 
 class NVExperiment:
