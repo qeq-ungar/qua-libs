@@ -39,8 +39,8 @@ NV_IF_freq = 40 * u.MHz
 NV_LO_freq = 2.83 * u.GHz
 
 # Pulses lengths
-initialization_len_1 = 3000 * u.ns
-meas_len_1 = 500 * u.ns
+initialization_len_1 = 2000 * u.ns
+meas_len_1 = 400 * u.ns
 long_meas_len_1 = 5_000 * u.ns
 
 initialization_len_2 = 3000 * u.ns
@@ -49,7 +49,7 @@ long_meas_len_2 = 5_000 * u.ns
 
 # Relaxation time from the metastable state to the ground state after during initialization
 relaxation_time = 300 * u.ns
-wait_for_initialization = 5 * relaxation_time
+wait_for_initialization = 2 * relaxation_time
 
 # MW parameters
 mw_amp_NV = 0.2  # in units of volts
@@ -67,19 +67,19 @@ rf_amp = 0.1
 rf_length = 1000
 
 # Readout parameters
-signal_threshold_1 = -2_000  # ADC untis, to convert to volts divide by 4096 (12 bit ADC)
+signal_threshold_1 = -8_00  # ADC untis, to convert to volts divide by 4096 (12 bit ADC)
 signal_threshold_2 = -2_000  # ADC untis, to convert to volts divide by 4096 (12 bit ADC)
 
 # Delays
-detection_delay_1 = 80 * u.ns
+detection_delay_1 = 324 * u.ns
 detection_delay_2 = 80 * u.ns
-laser_delay_1 = 0 * u.ns
+laser_delay_1 = 190 * u.ns
 laser_delay_2 = 0 * u.ns
 mw_delay = 0 * u.ns
 rf_delay = 0 * u.ns
 
 
-wait_between_runs = 100
+wait_between_runs = 500
 
 config = {
     "version": 1,

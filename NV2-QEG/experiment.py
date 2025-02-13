@@ -70,7 +70,7 @@ class NVExperiment:
         """
         self.commands.append({"type": "cw", "element": element, "length": length, "amplitude": amplitude})
 
-    def add_measure_delay(self, length):
+    def add_measure_delay(self, length = meas_len_1):
         """
         Adds a type "measure_delay" command to the experiment.
 
@@ -79,7 +79,7 @@ class NVExperiment:
         """
         self.measure_delay = length
 
-    def add_laser(self, name, length):
+    def add_laser(self, name, length=initialization_len_1):
         """
         Adds a type "laser" command to the experiment, with length in `u.ns`.
         test1 help
@@ -106,7 +106,7 @@ class NVExperiment:
         """
         self.commands.append({"type": "wait", "length": length, "variable": variable})
 
-    def add_measure(self, name="SPCM", mode="readout", meas_len=1000):
+    def add_measure(self, name="SPCM1", mode="readout", meas_len=meas_len_1):
         """
         Adds a type "measure" command to the experiment.
 
@@ -148,7 +148,7 @@ class NVExperiment:
             raise ValueError("Variable vector cannot be empty.")
         self.var_vec = var_vec
 
-    def setup_cw_odmr(self, readout_len=long_meas_len_1, wait_time=1_000, amplitude=1):
+    def setup_cw_odmr(self, f_vec, readout_len=long_meas_len_1, wait_time=1_000, amplitude=1): #vector of frequencies
         """
         A pre-fab collection of commands to run a continuous wave ODMR experiment.
 
@@ -158,7 +158,7 @@ class NVExperiment:
             amplitude (int, optional): _description_. Defaults to 1.
         """
         self.add_align()
-        self.add_frequency_update("NV")
+        self.add_frequency_update("NV", f_vec)
 
         self.add_laser("laser_ON", readout_len)
         self.add_cw_drive("NV", readout_len, amplitude)
@@ -166,6 +166,21 @@ class NVExperiment:
         self.add_wait(wait_time)
         self.add_measure(name="SPCM1", mode="long_readout", meas_len=readout_len)
         self.add_measure_delay(1_000)
+
+    def setup_time_rabi(self, t_vec = np.arange(4, 400, 1)):
+        """
+        A pre-fab collection of commands to run a Rabi experiment sweeping time of MW.
+
+        Args:
+           
+        """
+        self.define_loop(t_vec)
+        
+        self.add_initialization() #pass element here to assign hardware channel
+        self.add_pulse("x180", "NV", amplitude=1, variable=True)
+        self.add_align() 
+        self.add_laser("laser_ON") #pass element here to assign hardware channel
+        self.add_measure(name="SPCM1")
 
     def _translate_command(self, command, var, times, counts, counts_st, invert):
         """

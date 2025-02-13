@@ -83,13 +83,14 @@ qmm = QuantumMachinesManager(host=qop_ip, cluster_name=cluster_name, octave=octa
 #######################
 # Simulate or execute #
 #######################
-simulate = False
+simulate = True
 
 if simulate:
     # Simulates the QUA program for the specified duration
     simulation_config = SimulationConfig(duration=10_000)  # In clock cycles = 4ns
     job = qmm.simulate(config, time_rabi, simulation_config)
     job.get_simulated_samples().con1.plot()
+    plt.show()
 else:
     # Open the quantum machine
     qm = qmm.open_qm(config)
