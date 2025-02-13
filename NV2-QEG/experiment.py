@@ -21,7 +21,10 @@ class NVExperiment:
         self.commands = []
         self.use_fixed = False
         self.measure_len = None
+        self.measure_mode = None
+        self.measure_name = None
         self.initialize = False
+        self.measure_delay = 0
 
         # containers for results
         self.counts0 = None
@@ -67,6 +70,15 @@ class NVExperiment:
         """
         self.commands.append({"type": "cw", "element": element, "length": length, "amplitude": amplitude})
 
+    def add_measure_delay(self, length):
+        """
+        Adds a type "measure_delay" command to the experiment.
+
+        Args:
+            length (int): time of measurement acquisition in ns
+        """
+        self.measure_delay = length
+
     def add_laser(self, name, length):
         """
         Adds a type "laser" command to the experiment, with length in `u.ns`.
@@ -84,17 +96,17 @@ class NVExperiment:
         """
         self.commands.append({"type": "align"})
 
-    def add_wait(self, duration, variable=False):
+    def add_wait(self, length, variable=False):
         """
         Adds a type "wait" command to the experiment.
 
         Args:
-            duration (int): time to wait in ns
+            length (int): time to wait in ns
             variable (bool): If True, the wait time is a variable defined by the loop.
         """
-        self.commands.append({"type": "wait", "duration": duration, "variable": variable})
+        self.commands.append({"type": "wait", "length": length, "variable": variable})
 
-    def add_measure(self, name="SPCM", meas_len=1000):
+    def add_measure(self, name="SPCM", mode="readout", meas_len=1000):
         """
         Adds a type "measure" command to the experiment.
 
@@ -102,9 +114,11 @@ class NVExperiment:
             name (string): Name of the photon counter
             duration (int): time of measurement acquisition in ?ns?
         """
-        self.commands.append({"type": "measure", "name": name, "meas_len": meas_len})
+        self.commands.append({"type": "measure", "name": name, "mode": mode, "meas_len": meas_len})
         if self.measure_len is None:
             self.measure_len = meas_len
+            self.measure_mode = mode
+            self.measure_name = name
         elif self.measure_len != meas_len:
             raise ValueError("Inconsistent measurement lengths.")
 
@@ -150,7 +164,8 @@ class NVExperiment:
         self.add_cw_drive("NV", readout_len, amplitude)
 
         self.add_wait(wait_time)
-        self.add_measure("long_readout", readout_len)
+        self.add_measure(name="SPCM1", mode="long_readout", meas_len=readout_len)
+        self.add_measure_delay(1_000)
 
     def _translate_command(self, command, var, times, counts, counts_st, invert):
         """
@@ -178,8 +193,7 @@ class NVExperiment:
                 play(name * amp(amplitude), command["element"])
 
             case "cw":
-                duration = var if command["variable"] else command["length"]
-                play("cw" * amp(command["amplitude"]), command["element"], duration=duration * u.ns)
+                play("cw" * amp(command["amplitude"]), command["element"], duration=command["length"] * u.ns)
 
             case "wait":
                 duration = var if command["variable"] else command["length"]
@@ -190,8 +204,8 @@ class NVExperiment:
 
             case "measure":
                 measure(
+                    command["mode"],
                     command["name"],
-                    "SPCM1",
                     None,
                     time_tagging.analog(times, command["meas_len"], counts),
                 )
@@ -212,8 +226,12 @@ class NVExperiment:
         play("x180" * amp(pi_amp), "NV")  # Pi-pulse toggle
         align()
 
-        play("laser_ON", "AOM1")
-        measure("readout", "SPCM1", None, time_tagging.analog(times, self.measure_len, counts))
+        if self.measure_delay > 0:
+            wait(self.measure_delay * u.ns, self.measure_name)
+            play("laser_ON", "AOM1", duration=self.measure_len * u.ns)
+        else:
+            play("laser_ON", "AOM1")
+        measure(self.measure_mode, self.measure_name, None, time_tagging.analog(times, self.measure_len, counts))
 
         save(counts, counts_st)  # save counts
         wait(wait_between_runs * u.ns, "AOM1")
@@ -294,7 +312,7 @@ class NVExperiment:
 
         return experiment
 
-    def simulate_experiment(self, n_avg=100_000, measure_contrast=True, **kwargs):
+    def simulate_experiment(self, sim_length=10_000, n_avg=100_000, measure_contrast=True, **kwargs):
         """
         Simulates the experiment using the configuration defined by this class.
 
@@ -312,7 +330,7 @@ class NVExperiment:
             raise ValueError("No variable vector has been defined.")
 
         expt = self.create_experiment(n_avg=n_avg, measure_contrast=measure_contrast)
-        simulation_config = SimulationConfig(duration=10_000)  # In clock cycles = 4ns
+        simulation_config = SimulationConfig(duration=sim_length)  # In clock cycles = 4ns
         job = self.qmm.simulate(config, expt, simulation_config)
         job.get_simulated_samples().con1.plot()
         plt.show()
