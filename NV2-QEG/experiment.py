@@ -1,15 +1,18 @@
 from datetime import datetime
 import json
 import numpy as np
+from collections.abc import Iterable
 
 from qm import QuantumMachinesManager
 from qm.qua import *
 from qm import SimulationConfig
+from configuration_NV2QEG import *
+
+
 import matplotlib
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
-from configuration_NV2QEG import *
 
 
 class NVExperiment:
@@ -33,7 +36,7 @@ class NVExperiment:
         self.counts_ref1 = None
         self.iteration = None
 
-    def add_pulse(self, name, element, amplitude, variable=False, cycle=False):
+    def add_pulse(self, name, element, amplitude, length=x180_len_NV, cycle=False):
         """
         Adds a type "microwave" command to the experiment, with length in `u.ns` on the
         desired `element`.
@@ -45,18 +48,23 @@ class NVExperiment:
             amplitude (float?): amplitude of pulse
             variable (bool): If True, the pulse amplitude is a variable defined by the loop.
         """
-        self.commands.append(
-            {
-                "type": "pulse",
-                "element": element,
-                "name": name,
-                "amplitude": amplitude,
-                "variable": variable,
-                "cycle": cycle,
-            }
-        )
-        if variable:
+        command = {
+            "type": "pulse",
+            "element": element,
+            "name": name,
+            "cycle": cycle,
+        }
+        if isinstance(amplitude, Iterable):
+            command["scale"] = self.update_loop(amplitude)
             self.use_fixed = True
+            command["length"] = length
+        elif isinstance(length, Iterable):
+            command["scale"] = self.update_loop(length)
+            command["amplitude"] = amplitude
+        else:
+            command["length"] = length
+            command["amplitude"] = amplitude
+        self.commands.append(command)
 
     def add_cw_drive(self, element, length, amplitude):
         """
@@ -68,9 +76,20 @@ class NVExperiment:
             length (int): time of pulse in ns
             amplitude (float): amplitude of pulse
         """
-        self.commands.append({"type": "cw", "element": element, "length": length, "amplitude": amplitude})
+        command = {"type": "cw", "element": element}
+        if isinstance(amplitude, Iterable):
+            command["scale"] = self.update_loop(amplitude)
+            self.use_fixed = True
+            command["length"] = length
+        elif isinstance(length, Iterable):
+            command["scale"] = self.update_loop(length)
+            command["amplitude"] = amplitude
+        else:
+            command["length"] = length
+            command["amplitude"] = amplitude
+        self.commands.append(command)
 
-    def add_measure_delay(self, length = meas_len_1):
+    def add_measure_delay(self, length=meas_len_1):
         """
         Adds a type "measure_delay" command to the experiment.
 
@@ -79,7 +98,7 @@ class NVExperiment:
         """
         self.measure_delay = length
 
-    def add_laser(self, name, length=initialization_len_1):
+    def add_laser(self, mode="laser_ON", channel="AOM1", length=initialization_len_1):
         """
         Adds a type "laser" command to the experiment, with length in `u.ns`.
         test1 help
@@ -88,7 +107,7 @@ class NVExperiment:
             name (string): command name
             length (int): time of laser illumination in ns
         """
-        self.commands.append({"type": "laser", "name": name, "length": length})
+        self.commands.append({"type": "laser", "mode": mode, "channel": channel, "length": length})
 
     def add_align(self):
         """
@@ -96,7 +115,7 @@ class NVExperiment:
         """
         self.commands.append({"type": "align"})
 
-    def add_wait(self, length, variable=False):
+    def add_wait(self, length):
         """
         Adds a type "wait" command to the experiment.
 
@@ -104,7 +123,11 @@ class NVExperiment:
             length (int): time to wait in ns
             variable (bool): If True, the wait time is a variable defined by the loop.
         """
-        self.commands.append({"type": "wait", "length": length, "variable": variable})
+        if isinstance(length, Iterable):
+            scale = self.update_loop(length)
+            self.commands.append({"type": "wait", "scale": scale})
+        else:
+            self.commands.append({"type": "wait", "length": length})
 
     def add_measure(self, name="SPCM1", mode="readout", meas_len=meas_len_1):
         """
@@ -122,14 +145,52 @@ class NVExperiment:
         elif self.measure_len != meas_len:
             raise ValueError("Inconsistent measurement lengths.")
 
-    def add_frequency_update(self, element):
+    def add_frequency_update(self, element, freq_list):
         """
         Adds a type "update_frequency" command to the experiment.
 
         Args:
             element (string): Name of the element to update the frequency of
+            freq_list (array): Array of frequencies to update the element to
         """
         self.commands.append({"type": "update_frequency", "element": element})
+        self.update_loop(freq_list)
+
+    def update_loop(self, var_vec):
+        """
+        Updates the variable vector for the experiment. This is used to define the loop
+        that the experiment will run over. If the variable vector is already defined, this
+        function will check that the new vector is consistent with the previous one by determining
+        if the new vector is a constant multiple of the old one.
+
+        Args:
+            var_vec (array): Array of values for the variable in the experiment
+
+        Returns:
+            float: The constant multiple of the new vector to the old vector, 1 if this is the first update.
+
+        Raises:
+            ValueError: Throws an error if the new vector is not a constant multiple of the old one, or if
+                the new vector is all zeros.
+        """
+        if np.all(var_vec == 0):
+            raise ValueError("Variable vector cannot be all zeros.")
+
+        if self.var_vec is None:
+            self.var_vec = var_vec
+            return 1
+
+        two = self.var_vec
+        if np.dot(var_vec, two) * np.dot(two, var_vec) == np.dot(var_vec, var_vec) * np.dot(two, two):
+            div = -1
+            idx = 0
+            while div < 0:
+                div = two[idx] / var_vec[idx] if var_vec[idx] != 0 else -1
+                idx += 1
+            if div > 0:
+                return div
+
+        raise ValueError("Inconsistent loop variables.")
 
     def add_initialization(self):
         """
@@ -137,18 +198,7 @@ class NVExperiment:
         """
         self.initialize = True
 
-    def define_loop(self, var_vec):
-        """
-        Defines the loop over the variable vector.
-
-        Args:
-            var_vec (list): List of values to loop over
-        """
-        if len(var_vec) == 0:
-            raise ValueError("Variable vector cannot be empty.")
-        self.var_vec = var_vec
-
-    def setup_cw_odmr(self, f_vec, readout_len=long_meas_len_1, wait_time=1_000, amplitude=1): #vector of frequencies
+    def setup_cw_odmr(self, f_vec, readout_len=long_meas_len_1, wait_time=1_000, amplitude=1):  # vector of frequencies
         """
         A pre-fab collection of commands to run a continuous wave ODMR experiment.
 
@@ -160,26 +210,24 @@ class NVExperiment:
         self.add_align()
         self.add_frequency_update("NV", f_vec)
 
-        self.add_laser("laser_ON", readout_len)
+        self.add_laser("laser_ON", "AOM1", readout_len)
         self.add_cw_drive("NV", readout_len, amplitude)
 
         self.add_wait(wait_time)
         self.add_measure(name="SPCM1", mode="long_readout", meas_len=readout_len)
         self.add_measure_delay(1_000)
 
-    def setup_time_rabi(self, t_vec = np.arange(4, 400, 1)):
+    def setup_time_rabi(self, t_vec=np.arange(4, 400, 1)):
         """
         A pre-fab collection of commands to run a Rabi experiment sweeping time of MW.
 
         Args:
-           
+
         """
-        self.define_loop(t_vec)
-        
-        self.add_initialization() #pass element here to assign hardware channel
-        self.add_pulse("x180", "NV", amplitude=1, variable=True)
-        self.add_align() 
-        self.add_laser("laser_ON") #pass element here to assign hardware channel
+        self.add_initialization()  # pass element here to assign hardware channel
+        self.add_pulse("x180", "NV", amplitude=1, length=t_vec)
+        self.add_align()
+        self.add_laser(mode="laser_ON", channel="AOM1")  # pass element here to assign hardware channel
         self.add_measure(name="SPCM1")
 
     def _translate_command(self, command, var, times, counts, counts_st, invert):
@@ -198,24 +246,27 @@ class NVExperiment:
                 update_frequency(command["element"], var)
 
             case "pulse":
-                amplitude = var if command["variable"] else command["amplitude"]
+                amplitude = command.get("amplitude", var * command["scale"])
+                length = command.get("length", int(var * command["scale"]))
                 name = command["name"]
                 if invert and command["cycle"]:
                     if name[0] == "-":
                         name = name[1:]
                     else:
                         name = "-" + name
-                play(name * amp(amplitude), command["element"])
+                play(name * amp(amplitude), command["element"], duration=length)
 
             case "cw":
-                play("cw" * amp(command["amplitude"]), command["element"], duration=command["length"] * u.ns)
+                amplitude = command.get("amplitude", var * command["scale"])
+                length = command.get("length", int(var * command["scale"]))
+                play("cw" * amp(command["amplitude"]), command["element"], duration=command["length"])
 
             case "wait":
-                duration = var if command["variable"] else command["length"]
-                wait(duration * u.ns)
+                duration = command.get("length", var * command["scale"])
+                wait(duration)
 
             case "laser":
-                play("laser_ON", "AOM1", duration=command["length"] * u.ns)
+                play("laser_ON", "AOM1", duration=command["length"])
 
             case "measure":
                 measure(
