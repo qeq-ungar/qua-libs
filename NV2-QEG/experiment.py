@@ -25,7 +25,7 @@ class NVExperiment:
         self.use_fixed = False
         self.measure_len = None
         self.measure_mode = None
-        self.measure_name = None
+        self.measure_channel = None
         self.initialize = False
         self.measure_delay = 0
         self.laser_channel = None
@@ -206,9 +206,11 @@ class NVExperiment:
         A pre-fab collection of commands to run a continuous wave ODMR experiment.
 
         Args:
-            readout_len (int): _description_
-            wait_time (int, optional): _description_. Defaults to 1_000.
-            amplitude (int, optional): _description_. Defaults to 1.
+            f_vec (array): Array of frequencies to sweep over
+            readout_len (int): time of measurement acquisition in ns
+            wait_time (int, optional): Wait time after CW before readout. Should exceed metastable state lifetime.
+                Defaults to 1_000.
+            amplitude (int, optional): Amplitude of the microwave drive. Defaults to 1.
         """
         self.add_align()
         self.add_frequency_update("NV", f_vec)
@@ -244,13 +246,14 @@ class NVExperiment:
         Returns:
             qua command: The QUA command
         """
+        scale = command.get("scale", 1)
         match command["type"]:
             case "update_frequency":
                 update_frequency(command["element"], var)
 
             case "pulse":
-                amplitude = command.get("amplitude", var * command["scale"])
-                length = command.get("length", int(var * command["scale"]))
+                amplitude = command.get("amplitude", var * scale)
+                length = command.get("length", var * scale)
                 name = command["name"]
                 if invert and command["cycle"]:
                     if name[0] == "-":
@@ -260,12 +263,12 @@ class NVExperiment:
                 play(name * amp(amplitude), command["element"], duration=length)
 
             case "cw":
-                amplitude = command.get("amplitude", var * command["scale"])
-                length = command.get("length", int(var * command["scale"]))
+                amplitude = command.get("amplitude", var * scale)
+                length = command.get("length", var * scale)
                 play("cw" * amp(amplitude), command["element"], duration=length)
 
             case "wait":
-                duration = command.get("length", var * command["scale"])
+                duration = command.get("length", var * scale)
                 wait(duration)
 
             case "laser":
@@ -296,11 +299,11 @@ class NVExperiment:
         align()
 
         if self.measure_delay > 0:
-            wait(self.measure_delay * u.ns, self.measure_name)
+            wait(self.measure_delay * u.ns, self.measure_channel)
             play("laser_ON", self.laser_channel, duration=self.measure_len * u.ns)
         else:
             play("laser_ON", self.laser_channel)
-        measure(self.measure_mode, self.measure_name, None, time_tagging.analog(times, self.measure_len, counts))
+        measure(self.measure_mode, self.measure_channel, None, time_tagging.analog(times, self.measure_len, counts))
 
         save(counts, counts_st)  # save counts
         wait(wait_between_runs * u.ns, self.laser_channel)

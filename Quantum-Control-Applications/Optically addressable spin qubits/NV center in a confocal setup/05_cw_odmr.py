@@ -30,7 +30,7 @@ from configuration import *
 ###################
 
 # Frequency vector
-f_vec = np.arange(-30 * u.MHz, 70 * u.MHz, 2 * u.MHz)
+f_vec = np.arange(0, 100, 1) * u.MHz
 n_avg = 1_000_000  # number of averages
 readout_len = long_meas_len_1  # Readout duration for this experiment
 
@@ -92,7 +92,7 @@ simulate = True
 
 if simulate:
     # Simulates the QUA program for the specified duration
-    simulation_config = SimulationConfig(duration=2500)  # In clock cycles = 4ns
+    simulation_config = SimulationConfig(duration=10_000)  # In clock cycles = 4ns
     job = qmm.simulate(config, cw_odmr, simulation_config)
     job.get_simulated_samples().con1.plot()
     plt.show()
