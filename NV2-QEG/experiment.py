@@ -28,6 +28,7 @@ class NVExperiment:
         self.measure_name = None
         self.initialize = False
         self.measure_delay = 0
+        self.laser_channel = None
 
         # containers for results
         self.counts0 = None
@@ -108,6 +109,7 @@ class NVExperiment:
             length (int): time of laser illumination in ns
         """
         self.commands.append({"type": "laser", "mode": mode, "channel": channel, "length": length})
+        self.laser_channel = channel
 
     def add_align(self):
         """
@@ -129,19 +131,20 @@ class NVExperiment:
         else:
             self.commands.append({"type": "wait", "length": length})
 
-    def add_measure(self, name="SPCM1", mode="readout", meas_len=meas_len_1):
+    def add_measure(self, mode="readout", channel="SPCM1", meas_len=meas_len_1):
         """
         Adds a type "measure" command to the experiment.
 
         Args:
-            name (string): Name of the photon counter
-            duration (int): time of measurement acquisition in ?ns?
+            mode (string): Measurement mode, like "readout" or "long_readout"
+            channel (string): Channel to measure on, like "SPCM1" in the config
+            meas_len (int): time of measurement acquisition in ns
         """
-        self.commands.append({"type": "measure", "name": name, "mode": mode, "meas_len": meas_len})
+        self.commands.append({"type": "measure", "channel": channel, "mode": mode, "meas_len": meas_len})
         if self.measure_len is None:
             self.measure_len = meas_len
             self.measure_mode = mode
-            self.measure_name = name
+            self.measure_channel = channel
         elif self.measure_len != meas_len:
             raise ValueError("Inconsistent measurement lengths.")
 
@@ -210,11 +213,11 @@ class NVExperiment:
         self.add_align()
         self.add_frequency_update("NV", f_vec)
 
-        self.add_laser("laser_ON", "AOM1", readout_len)
+        self.add_laser(mode="laser_ON", channel="AOM1", length=readout_len)
         self.add_cw_drive("NV", readout_len, amplitude)
 
         self.add_wait(wait_time)
-        self.add_measure(name="SPCM1", mode="long_readout", meas_len=readout_len)
+        self.add_measure(channel="SPCM1", mode="long_readout", meas_len=readout_len)
         self.add_measure_delay(1_000)
 
     def setup_time_rabi(self, t_vec=np.arange(4, 400, 1)):
@@ -228,7 +231,7 @@ class NVExperiment:
         self.add_pulse("x180", "NV", amplitude=1, length=t_vec)
         self.add_align()
         self.add_laser(mode="laser_ON", channel="AOM1")  # pass element here to assign hardware channel
-        self.add_measure(name="SPCM1")
+        self.add_measure(channel="SPCM1")
 
     def _translate_command(self, command, var, times, counts, counts_st, invert):
         """
@@ -259,19 +262,19 @@ class NVExperiment:
             case "cw":
                 amplitude = command.get("amplitude", var * command["scale"])
                 length = command.get("length", int(var * command["scale"]))
-                play("cw" * amp(command["amplitude"]), command["element"], duration=command["length"])
+                play("cw" * amp(amplitude), command["element"], duration=length)
 
             case "wait":
                 duration = command.get("length", var * command["scale"])
                 wait(duration)
 
             case "laser":
-                play("laser_ON", "AOM1", duration=command["length"])
+                play(command["mode"], command["channel"], duration=command["length"])
 
             case "measure":
                 measure(
                     command["mode"],
-                    command["name"],
+                    command["channel"],
                     None,
                     time_tagging.analog(times, command["meas_len"], counts),
                 )
@@ -294,13 +297,13 @@ class NVExperiment:
 
         if self.measure_delay > 0:
             wait(self.measure_delay * u.ns, self.measure_name)
-            play("laser_ON", "AOM1", duration=self.measure_len * u.ns)
+            play("laser_ON", self.laser_channel, duration=self.measure_len * u.ns)
         else:
-            play("laser_ON", "AOM1")
+            play("laser_ON", self.laser_channel)
         measure(self.measure_mode, self.measure_name, None, time_tagging.analog(times, self.measure_len, counts))
 
         save(counts, counts_st)  # save counts
-        wait(wait_between_runs * u.ns, "AOM1")
+        wait(wait_between_runs * u.ns, self.laser_channel)
 
     def create_experiment(self, n_avg, measure_contrast):
         """
@@ -342,8 +345,8 @@ class NVExperiment:
 
             # start the experiment
             if self.initialize:
-                play("laser_ON", "AOM1")
-                wait(wait_for_initialization * u.ns, "AOM1")
+                play("laser_ON", self.laser_channel)
+                wait(wait_for_initialization * u.ns, self.laser_channel)
 
             with for_(n, 0, n < n_avg, n + 1):  # averaging loop
                 with for_(*from_array(var, self.var_vec)):  # scanning loop
