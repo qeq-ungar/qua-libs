@@ -3,6 +3,18 @@ from qualang_tools.units import unit
 from qualang_tools.plot import interrupt_on_close
 from qualang_tools.results import progress_counter, fetching_tool
 from qualang_tools.loops import from_array
+from SG384 import SG384Control
+
+#######################
+# Initiate signal generator communication #
+#######################
+sg384_NV = SG384Control("TCPIP0::18.25.11.6::5025::SOCKET")  # NV channel
+
+# sg384_NV.set_amplitude(NV_LO_amp)
+# sg384_NV.set_frequency(NV_LO_freq)
+# sg384_NV.ntype_on(1)
+# sg384_NV.do_set_Modulation_State("ON")
+# sg384_NV.do_set_modulation_type("IQ")
 
 #######################
 # AUXILIARY FUNCTIONS #
@@ -37,6 +49,7 @@ octave_config = None
 # Frequencies
 NV_IF_freq = 40 * u.MHz
 NV_LO_freq = 2.83 * u.GHz
+NV_LO_amp = -19  # in dBm
 
 # Pulses lengths
 initialization_len_1 = 2000 * u.ns
@@ -56,7 +69,7 @@ mw_amp_NV = 0.2  # in units of volts
 mw_len_NV = 100 * u.ns
 
 x180_amp_NV = 0.1  # in units of volts
-x180_len_NV = 32  # in units of ns
+x180_len_NV = 32 * u.ns  # in units of ns
 
 x90_amp_NV = x180_amp_NV / 2  # in units of volts
 x90_len_NV = x180_len_NV  # in units of ns
@@ -64,7 +77,7 @@ x90_len_NV = x180_len_NV  # in units of ns
 # RF parameters
 rf_frequency = 10 * u.MHz
 rf_amp = 0.1
-rf_length = 1000
+rf_length = 1000 * u.ns
 
 # Readout parameters
 signal_threshold_1 = -8_00  # ADC untis, to convert to volts divide by 4096 (12 bit ADC)
@@ -79,7 +92,7 @@ mw_delay = 0 * u.ns
 rf_delay = 0 * u.ns
 
 
-wait_between_runs = 500
+wait_between_runs = 500 * u.ns
 
 config = {
     "version": 1,
