@@ -45,7 +45,7 @@ class NVExperiment:
 
     def add_pulse(self, name, element, amplitude, length=x180_len_NV, cycle=False):
         """
-        Adds a type "microwave" command to the experiment, with length in `u.ns` on the
+        Adds a type "microwave" command to the experiment on the
         desired `element`.
 
         Args:
@@ -75,7 +75,7 @@ class NVExperiment:
 
     def add_cw_drive(self, element, length, amplitude):
         """
-        Adds a type "microwave" command to the experiment, with length in `u.ns` on the
+        Adds a type "microwave" command to the experiment on the
         desired `element`.
 
         Args:
@@ -107,8 +107,7 @@ class NVExperiment:
 
     def add_laser(self, mode="laser_ON", channel="AOM1", length=initialization_len_1):
         """
-        Adds a type "laser" command to the experiment, with length in `u.ns`.
-        test1 help
+        Adds a type "laser" command to the experiment
 
         Args:
             name (string): command name
@@ -298,21 +297,21 @@ class NVExperiment:
         within a qua program.
 
         """
-        wait(wait_between_runs * u.ns)
+        wait(wait_between_runs)
         align()
 
         play("x180" * amp(pi_amp), "NV")  # Pi-pulse toggle
         align()
 
         if self.measure_delay > 0:
-            wait(self.measure_delay * u.ns, self.measure_channel)
-            play("laser_ON", self.laser_channel, duration=self.measure_len * u.ns)
+            wait(self.measure_delay, self.measure_channel)
+            play("laser_ON", self.laser_channel, duration=self.measure_len)
         else:
             play("laser_ON", self.laser_channel)
         measure(self.measure_mode, self.measure_channel, None, time_tagging.analog(times, self.measure_len, counts))
 
         save(counts, counts_st)  # save counts
-        wait(wait_between_runs * u.ns, self.laser_channel)
+        wait(wait_between_runs, self.laser_channel)
 
     def create_experiment(self, n_avg, measure_contrast):
         """
@@ -355,7 +354,14 @@ class NVExperiment:
             # start the experiment
             if self.initialize:
                 play("laser_ON", self.laser_channel)
-                wait(wait_for_initialization * u.ns, self.laser_channel)
+                wait(wait_for_initialization, self.laser_channel)
+
+            # turn on microwave
+            sg384_NV.set_amplitude(NV_LO_amp)
+            sg384_NV.set_frequency(NV_LO_freq)
+            sg384_NV.ntype_on(1)
+            sg384_NV.do_set_Modulation_State("ON")
+            sg384_NV.do_set_modulation_type("IQ")
 
             with for_(n, 0, n < n_avg, n + 1):  # averaging loop
                 with for_(*from_array(var, self.var_vec)):  # scanning loop
@@ -375,8 +381,11 @@ class NVExperiment:
                         self._reference_counts(times, counts_ref1, counts_ref1_st, pi_amp=1)
 
                     # always end with a wait and saving the number of iterations
-                    wait(wait_between_runs * u.ns)
+                    wait(wait_between_runs)
                 save(n, n_st)
+
+            # turn off microwave after experiment concludes
+            sg384_NV.rf_off()
 
             with stream_processing():
                 # save the data from the datastream as 1D arrays on the OPx, with a

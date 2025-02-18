@@ -61,9 +61,9 @@ class SG384Control:
         self.ntype_on(True)
 
     def rf_off(self):
-        self.ntype_off(False)
+        self.ntype_on(False)
 
-    def ntype_on(self, boolean,print_me=True):
+    def ntype_on(self, boolean, print_me=True):
         r"""
         Turns on/off the rf. send `boolean`=True or 1 to turn on RF. Send `boolean`=False or 0
         to turn off the rf.
@@ -73,9 +73,8 @@ class SG384Control:
         if print_me:
             print(f"N-type RF bool set to {boolean}")
 
-    def bnctype_on(self, bool2,print_me = True):
-        r"""
-        """
+    def bnctype_on(self, bool2, print_me=True):
+        r""" """
         command = f"ENBL {bool2}"
         self.send_command(command)
         if print_me:
