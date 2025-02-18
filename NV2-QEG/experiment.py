@@ -2,11 +2,11 @@ from datetime import datetime
 import json
 import numpy as np
 from collections.abc import Iterable
+from utils import NumpyEncoder
 
-from qm import QuantumMachinesManager
 from qm.qua import *
 from qm import SimulationConfig
-from configuration_NV2QEG import *
+from configuration import Configuration
 
 
 import matplotlib
@@ -16,9 +16,7 @@ import matplotlib.pyplot as plt
 
 
 class NVExperiment:
-    def __init__(self, custom_config=None):
-        self.qmm = QuantumMachinesManager(host=qop_ip, cluster_name=cluster_name, octave=octave_config)
-
+    def __init__(self, config=None):
         # containers for commands
         self.var_vec = None
         self.commands = []
@@ -37,11 +35,8 @@ class NVExperiment:
         self.counts_ref1 = None
         self.iteration = None
 
-        # store current config
-        if custom_config is None:
-            self.config = config
-        else:
-            self.config = custom_config
+        # generate the config
+        self.config = Configuration() if config is None else config
 
     def add_pulse(self, name, element, amplitude, length=x180_len_NV, cycle=False):
         """
@@ -561,16 +556,3 @@ class NVExperiment:
                 self.__dict__[k] = v
         except (OSError, IOError, FileNotFoundError) as e:
             print(f"Error loading file: {e}")
-
-
-class NumpyEncoder(json.JSONEncoder):
-    """Special json encoder for numpy types"""
-
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return json.JSONEncoder.default(self, obj)
