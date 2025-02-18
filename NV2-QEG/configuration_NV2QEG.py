@@ -3,6 +3,18 @@ from qualang_tools.units import unit
 from qualang_tools.plot import interrupt_on_close
 from qualang_tools.results import progress_counter, fetching_tool
 from qualang_tools.loops import from_array
+from SG384 import SG384Control
+
+#######################
+# Initiate signal generator communication #
+#######################
+sg384_NV = SG384Control("TCPIP0::18.25.11.6::5025::SOCKET")  # NV channel
+
+#sg384_NV.set_amplitude(NV_LO_amp)
+#sg384_NV.set_frequency(NV_LO_freq)
+#sg384_NV.ntype_on(1)
+#sg384_NV.do_set_Modulation_State("ON")
+#sg384_NV.do_set_modulation_type("IQ")
 
 #######################
 # AUXILIARY FUNCTIONS #
@@ -37,6 +49,7 @@ octave_config = None
 # Frequencies
 NV_IF_freq = 40 * u.MHz
 NV_LO_freq = 2.83 * u.GHz
+NV_LO_amp = -19 # in dBm
 
 # Pulses lengths
 initialization_len_1 = 2000 * u.ns

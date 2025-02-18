@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 
 class NVExperiment:
-    def __init__(self):
+    def __init__(self, custom_config=None):
         self.qmm = QuantumMachinesManager(host=qop_ip, cluster_name=cluster_name, octave=octave_config)
 
         # containers for commands
@@ -36,6 +36,12 @@ class NVExperiment:
         self.counts1 = None
         self.counts_ref1 = None
         self.iteration = None
+
+        # store current config
+        if custom_config is None:
+            self.config = config
+        else:
+            self.config = custom_config
 
     def add_pulse(self, name, element, amplitude, length=x180_len_NV, cycle=False):
         """
