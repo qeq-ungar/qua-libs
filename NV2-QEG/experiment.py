@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 # user defined classes
 from utils import NumpyEncoder
-from configuration import ConfigNV, u
+from configuration import ConfigNV2, u
 
 # Quantum machines imports
 from qm import SimulationConfig
@@ -37,7 +37,7 @@ matplotlib.use("TkAgg")
 
 
 class NVExperiment:
-    def __init__(self, config=ConfigNV()):
+    def __init__(self, config=ConfigNV2()):
         # containers for commands
         self.var_vec = None
         self.commands = []
@@ -381,13 +381,6 @@ class NVExperiment:
                 play("laser_ON", self.laser_channel)
                 wait(self.config.wait_for_initialization, self.laser_channel)
 
-            # turn on microwave
-            sg384_NV.set_amplitude(NV_LO_amp)
-            sg384_NV.set_frequency(NV_LO_freq)
-            sg384_NV.ntype_on(1)
-            sg384_NV.do_set_Modulation_State("ON")
-            sg384_NV.do_set_modulation_type("IQ")
-
             with for_(n, 0, n < n_avg, n + 1):  # averaging loop
                 with for_(*from_array(var, self.var_vec)):  # scanning loop
 
@@ -408,9 +401,6 @@ class NVExperiment:
                     # always end with a wait and saving the number of iterations
                     wait(self.config.wait_between_runs)
                 save(n, n_st)
-
-            # turn off microwave after experiment concludes
-            sg384_NV.rf_off()
 
             with stream_processing():
                 # save the data from the datastream as 1D arrays on the OPx, with a
@@ -472,6 +462,10 @@ class NVExperiment:
 
         # Open the quantum machine
         qm = self.qmm.open_qm(self.config.config)
+
+        # turn on the microwave control
+        self.config.enable_mw1()
+        self.config.enable_mw2()
 
         # Send the QUA program to the OPX, which compiles and executes it
         job = qm.execute(expt)
@@ -546,6 +540,10 @@ class NVExperiment:
                 counts0, counts_ref0, iteration = results.fetch_all()
             else:
                 counts0, counts_ref0, counts1, counts_ref1, iteration = results.fetch_all()
+
+        # turn off the microwave control
+        self.config.disable_mw1()
+        self.config.disable_mw2()
 
         self.counts0 = counts0
         self.counts_ref0 = counts_ref0
