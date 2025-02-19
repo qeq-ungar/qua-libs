@@ -416,7 +416,7 @@ class ConfigNV2(ConfigNV):
 
     def load_settup_detault(self):
         """
-        Loads the default configuration for the NV2-QEG experiment.
+        Loads additional default parameters for the NV2-QEG experiment.
         """
         self.mw_port1 = "TCPIP0::18.25.11.6::5025::SOCKET"
         self.mw_port2 = "TCPIP0::18.25.11.5::5025::SOCKET"
