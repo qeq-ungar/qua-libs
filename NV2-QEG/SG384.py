@@ -57,21 +57,26 @@ class SG384Control:
         """
         return float(self.instr.query("FREQ?MHz"))
 
-    def rf_on(self):
-        self.ntype_on(True)
-
-    def rf_off(self):
-        self.ntype_on(False)
-
-    def ntype_on(self, boolean, print_me=True):
+    def ntype_on(self, print_me=True):
         r"""
         Turns on/off the rf. send `boolean`=True or 1 to turn on RF. Send `boolean`=False or 0
         to turn off the rf.
         """
-        command = f"ENBR {boolean}"
+        command = f"ENBR 1"
         self.send_command(command)
         if print_me:
-            print(f"N-type RF bool set to {boolean}")
+            print(f"N-type RF bool set to on")
+    
+    def ntype_off(self, print_me=True):
+        r"""
+        Turns on/off the rf. send `boolean`=True or 1 to turn on RF. Send `boolean`=False or 0
+        to turn off the rf.
+        """
+        command = f"ENBR 0"
+        self.send_command(command)
+        if print_me:
+            print(f"N-type RF bool set to off")
+
 
     def bnctype_on(self, bool2, print_me=True):
         r""" """

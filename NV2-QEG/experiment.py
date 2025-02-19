@@ -37,6 +37,12 @@ class NVExperiment:
         self.counts_ref1 = None
         self.iteration = None
 
+        # containers for plotting data
+        self.x_axis_scale = 1
+        self.x_axis_label = "Swept Variable [a.u.]"
+        self.y_axis_label = "Intensity [kcps]"
+        self.plot_title = "Measurement Results"
+
         # store current config
         if custom_config is None:
             self.config = config
@@ -113,7 +119,7 @@ class NVExperiment:
             name (string): command name
             length (int): time of laser illumination in ns
         """
-        self.commands.append({"type": "laser", "mode": mode, "channel": channel, "length": length})
+        self.commands.append({"type": "laser", "channel": channel, "mode": mode, "length": length})
         self.laser_channel = channel
 
     def add_align(self):
@@ -200,15 +206,22 @@ class NVExperiment:
 
         raise ValueError("Inconsistent loop variables.")
 
-    def add_initialization(self):
+    def add_initialization(self, channel="AOM1"):
         """
         Adds a laser pulse to polarize the system before the first sequence. This is controlled with the config file.
         """
         self.initialize = True
+        self.laser_channel = channel
 
-    def setup_cw_odmr(self, f_vec, readout_len=long_meas_len_1, wait_time=1_000, amplitude=1):  # vector of frequencies
+    def setup_cw_odmr(
+        self,
+        f_vec=np.arange(60 * u.MHz, 100 * u.MHz, 1 * u.MHz),
+        readout_len=long_meas_len_1,
+        wait_time=1_000,
+        amplitude=1,
+    ):  # vector of frequencies
         """
-        A pre-fab collection of commands to run a continuous wave ODMR experiment.
+        Sequence of commands to run a continuous wave ODMR experiment.
 
         Args:
             f_vec (array): Array of frequencies to sweep over
@@ -220,24 +233,110 @@ class NVExperiment:
         self.add_align()
         self.add_frequency_update("NV", f_vec)
 
-        self.add_laser(mode="laser_ON", channel="AOM1", length=readout_len)
+        self.add_laser(channel="AOM1", length=readout_len)
         self.add_cw_drive("NV", readout_len, amplitude)
 
         self.add_wait(wait_time)
         self.add_measure(channel="SPCM1", mode="long_readout", meas_len=readout_len)
         self.add_measure_delay(1_000)
 
-    def setup_time_rabi(self, t_vec=np.arange(4, 400, 1)):
+        # for plotting results
+        self.x_axis_scale = 1 / u.MHz
+        self.x_axis_label = "MW frequency [MHz]"
+        self.plot_title = "CW ODMR"
+
+    def setup_time_rabi(self, t_vec=np.arange(4, 200, 2)):
         """
-        A pre-fab collection of commands to run a Rabi experiment sweeping time of MW.
+        Sequence of commands to run a Rabi experiment sweeping time of MW.
 
         Args:
-
+            t_vec (array): Array of pulse durations in clock cycles (4ns)
         """
-        self.add_initialization()  # pass element here to assign hardware channel
+
+        self.add_initialization(channel="AOM1")
         self.add_pulse("x180", "NV", amplitude=1, length=t_vec)
         self.add_align()
-        self.add_laser(mode="laser_ON", channel="AOM1")  # pass element here to assign hardware channel
+        self.add_laser(mode="laser_ON", channel="AOM1")
+        self.add_measure(channel="SPCM1")
+
+        # for plotting results
+        self.x_axis_scale = 4
+        self.x_axis_label = "Rabi pulse duration [ns]"
+        self.plot_title = "Time Rabi"
+
+    def setup_power_rabi(self, a_vec=np.arange(0.1, 2, 0.02)):
+        """
+        Sequence of commands to run a Rabi experiment sweeping time of MW.
+
+        Args:
+            a_vec (array): Array of pulse voltage scalings in [a.u.]
+        """
+
+        self.add_initialization(channel="AOM1")
+        self.add_pulse("x180", "NV", amplitude=a_vec, length=x180_len_NV)
+        self.add_align()
+        self.add_laser(mode="laser_ON", channel="AOM1")
+        self.add_measure(channel="SPCM1")
+
+        # for plotting results
+        self.x_axis_scale = x180_amp_NV
+        self.x_axis_label = "Rabi pulse amplitude [V]"
+        self.plot_title = "Power Rabi"
+
+    # def setup_time_rabi(self, t_vec=np.arange(4, 40, 4)):
+    #     """
+    #     Sequence of commands to run a Rabi experiment sweeping time of MW.
+
+    #     Args:
+    #         t_vec (array): Array of pulse durations in ns (integer multiples of 4ns)
+    #     """
+
+    #     self.rabi_sequence(length=t_vec)
+
+    #     # for plotting results
+    #     self.x_axis_scale = 4
+    #     self.x_axis_label = "Rabi pulse duration [ns]"
+    #     self.plot_title = "Time Rabi"
+
+    # def setup_power_rabi(self, a_vec=np.arange(0.1, 2, 0.02)):
+    #     """
+    #     Sequence of commands to run a Rabi experiment sweeping time of MW.
+
+    #     Args:
+    #         t_vec (array): Array of pulse durations in clock cycles (4ns)
+    #     """
+
+    #     self.rabi_sequence(amplitude=a_vec)
+
+    #     # for plotting results
+    #     self.x_axis_scale = x180_amp_NV
+    #     self.x_axis_label = "Rabi pulse amplitude [V]"
+    #     self.plot_title = "Power Rabi"
+
+    def setup_pulsed_odmr(self, f_vec=np.arange(60 * u.MHz, 100 * u.MHz, 1 * u.MHz)):
+        """
+        Sequence of commands to run a Rabi experiment sweeping time of MW.
+
+        Args:
+            t_vec (array): Array of pulse durations in clock cycles (4ns)
+        """
+
+        self.rabi_sequence(frequency=f_vec)
+
+        # for plotting results
+        self.x_axis_scale = 1 / u.MHz
+        self.x_axis_label = "MW frequency [MHz]"
+        self.plot_title = "Pulsed ODMR"
+
+    def rabi_sequence(self, frequency=[NV_IF_freq], amplitude=1, length=x180_len_NV):
+
+        if len(frequency) > 1:
+            self.add_frequency_update("NV", frequency)
+
+        self.add_initialization(channel="AOM1")
+        self.add_pulse("x180", "NV", amplitude=amplitude, length=length)
+        self.add_align()
+        self.add_laser(mode="laser_ON", channel="AOM1")
         self.add_measure(channel="SPCM1")
 
     def _translate_command(self, command, var, times, counts, counts_st, invert):
@@ -265,19 +364,20 @@ class NVExperiment:
                         name = name[1:]
                     else:
                         name = "-" + name
-                play(name * amp(amplitude), command["element"], duration=length)
+
+                play(name * amp(amplitude), command["element"], duration=length * u.ns)
 
             case "cw":
                 amplitude = command.get("amplitude", var * scale)
                 length = command.get("length", var * scale)
-                play("cw" * amp(amplitude), command["element"], duration=length)
+                play("cw" * amp(amplitude), command["element"], duration=length * u.ns)
 
             case "wait":
                 duration = command.get("length", var * scale)
-                wait(duration)
+                wait(duration * u.ns)
 
             case "laser":
-                play(command["mode"], command["channel"], duration=command["length"])
+                play(command["mode"], command["channel"], duration=command["length"] * u.ns)
 
             case "measure":
                 measure(
@@ -297,21 +397,21 @@ class NVExperiment:
         within a qua program.
 
         """
-        wait(wait_between_runs)
+        wait(wait_between_runs * u.ns)
         align()
 
         play("x180" * amp(pi_amp), "NV")  # Pi-pulse toggle
         align()
 
         if self.measure_delay > 0:
-            wait(self.measure_delay, self.measure_channel)
-            play("laser_ON", self.laser_channel, duration=self.measure_len)
+            wait(self.measure_delay * u.ns, self.measure_channel)
+            play("laser_ON", self.laser_channel, duration=self.measure_len * u.ns)
         else:
             play("laser_ON", self.laser_channel)
         measure(self.measure_mode, self.measure_channel, None, time_tagging.analog(times, self.measure_len, counts))
 
         save(counts, counts_st)  # save counts
-        wait(wait_between_runs, self.laser_channel)
+        wait(wait_between_runs * u.ns, self.laser_channel)
 
     def create_experiment(self, n_avg, measure_contrast):
         """
@@ -354,14 +454,7 @@ class NVExperiment:
             # start the experiment
             if self.initialize:
                 play("laser_ON", self.laser_channel)
-                wait(wait_for_initialization, self.laser_channel)
-
-            # turn on microwave
-            sg384_NV.set_amplitude(NV_LO_amp)
-            sg384_NV.set_frequency(NV_LO_freq)
-            sg384_NV.ntype_on(1)
-            sg384_NV.do_set_Modulation_State("ON")
-            sg384_NV.do_set_modulation_type("IQ")
+                wait(wait_for_initialization * u.ns, self.laser_channel)
 
             with for_(n, 0, n < n_avg, n + 1):  # averaging loop
                 with for_(*from_array(var, self.var_vec)):  # scanning loop
@@ -381,11 +474,8 @@ class NVExperiment:
                         self._reference_counts(times, counts_ref1, counts_ref1_st, pi_amp=1)
 
                     # always end with a wait and saving the number of iterations
-                    wait(wait_between_runs)
+                    # wait(wait_between_runs) #commented out because already executed in _reference_counts
                 save(n, n_st)
-
-            # turn off microwave after experiment concludes
-            sg384_NV.rf_off()
 
             with stream_processing():
                 # save the data from the datastream as 1D arrays on the OPx, with a
@@ -423,7 +513,7 @@ class NVExperiment:
         plt.show()
         return job
 
-    def execute_experiment(self, n_avg=100_000, measure_contrast=True, **kwargs):
+    def execute_experiment(self, n_avg=100_000, measure_contrast=True, live_plot=True):
         """
         Executes the experiment using the configuration defined by this class. The results are
         stored in the class instance. The results will be visualized live, but this can be
@@ -448,14 +538,15 @@ class NVExperiment:
         # Open the quantum machine
         qm = self.qmm.open_qm(config)
 
+        # turn on microwave
+        sg384_NV.set_amplitude(NV_LO_amp)
+        sg384_NV.set_frequency(NV_LO_freq)
+        sg384_NV.ntype_on()
+        sg384_NV.do_set_Modulation_State("ON")
+        sg384_NV.do_set_modulation_type("IQ")
+
         # Send the QUA program to the OPX, which compiles and executes it
         job = qm.execute(expt)
-
-        # get some optional keyword arguments for advanced features
-        live = kwargs.get("live", True)
-
-        # set the mode for fetching the data
-        mode = "live" if live else "wait_for_all"
 
         # set the data lists being generated to later fetch
         data_list = ["counts0", "counts_ref0"]
@@ -463,14 +554,11 @@ class NVExperiment:
             data_list.extend(["counts1", "counts_ref1"])
         data_list.append("iteration")
 
+        mode = "live" if live_plot else "wait_for_all"
         # create the fetch tool
         results = fetching_tool(job, data_list=data_list, mode=mode)
 
-        if live:
-            # Live plotting kwargs
-            offset_freq = kwargs.get("offset_freq", 0)
-            title = kwargs.get("title", "Data Acquisition")
-            xlabel = kwargs.get("xlabel", "Dependent Variable")
+        if live_plot:
 
             fig = plt.figure()
             interrupt_on_close(fig, job)  # Interrupts the job when closing the figure
@@ -486,31 +574,31 @@ class NVExperiment:
                 # Plot data
                 plt.cla()
                 plt.plot(
-                    (offset_freq + self.var_vec) / u.MHz,
+                    self.var_vec * self.x_axis_scale,
                     counts0 / 1000 / (self.measure_len * 1e-9),
-                    label="photon counts |0>",
+                    label="sig0",
                 )
                 plt.plot(
-                    (offset_freq + self.var_vec) / u.MHz,
+                    self.var_vec * self.x_axis_scale,
                     counts_ref0 / 1000 / (self.measure_len * 1e-9),
-                    label="reference counts |0>",
+                    label="ref0",
                 )
 
                 if not measure_contrast:
                     plt.plot(
-                        (offset_freq + self.var_vec) / u.MHz,
+                        self.var_vec * self.x_axis_scale,
                         counts1 / 1000 / (self.measure_len * 1e-9),
-                        label="photon counts |1>",
+                        label="sig1",
                     )
                     plt.plot(
-                        (offset_freq + self.var_vec) / u.MHz,
+                        self.var_vec * self.x_axis_scale,
                         counts_ref1 / 1000 / (self.measure_len * 1e-9),
-                        label="reference counts |1>",
+                        label="ref1",
                     )
 
-                plt.xlabel(xlabel)
-                plt.ylabel("Intensity [kcps]")
-                plt.title(title)
+                plt.xlabel(self.x_axis_label)
+                plt.ylabel(self.y_axis_label)
+                plt.title(self.plot_title)
                 plt.legend()
                 plt.pause(0.1)
         else:
@@ -528,6 +616,10 @@ class NVExperiment:
             self.counts1 = counts1
             self.counts_ref1 = counts_ref1
         self.iteration = iteration
+
+        # turn off microwave after experiment concludes
+        sg384_NV.ntype_off()
+        sg384_NV.do_set_Modulation_State("OFF")
 
     def save(self, filename=None):
         """
