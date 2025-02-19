@@ -1,22 +1,43 @@
+# general python imports
 from datetime import datetime
 import json
 import numpy as np
 from collections.abc import Iterable
-from utils import NumpyEncoder
-
-from qm.qua import *
-from qm import SimulationConfig
-from configuration import Configuration
-
-
 import matplotlib
-
-matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+
+# user defined classes
+from utils import NumpyEncoder
+from configuration import ConfigNV, u
+
+# Quantum machines imports
+from qm import SimulationConfig
+from qm.qua import (
+    update_frequency,
+    play,
+    wait,
+    measure,
+    save,
+    align,
+    amp,
+    program,
+    declare,
+    time_tagging,
+    stream_processing,
+    declare_stream,
+    for_,
+    fixed,
+)
+from qualang_tools.plot import interrupt_on_close
+from qualang_tools.results import progress_counter, fetching_tool
+from qualang_tools.loops import from_array
+
+# plotting
+matplotlib.use("TkAgg")
 
 
 class NVExperiment:
-    def __init__(self, config=None):
+    def __init__(self, config=ConfigNV()):
         # containers for commands
         self.var_vec = None
         self.commands = []
@@ -35,10 +56,10 @@ class NVExperiment:
         self.counts_ref1 = None
         self.iteration = None
 
-        # generate the config
-        self.config = Configuration() if config is None else config
+        # store the config
+        self.config = config
 
-    def add_pulse(self, name, element, amplitude, length=x180_len_NV, cycle=False):
+    def add_pulse(self, name, element, amplitude=1, length=None, cycle=False):
         """
         Adds a type "microwave" command to the experiment on the
         desired `element`.
@@ -47,9 +68,11 @@ class NVExperiment:
             name (string): Name of the pulse. 8 predefined pulses are avaialble,
                 "+/-" * "x/y" * "90/180", eg "y180" or "-x90"
             element (string): Channel to play the pulse on, like "NV" or "C13" in the config
-            amplitude (float?): amplitude of pulse
-            variable (bool): If True, the pulse amplitude is a variable defined by the loop.
+            amplitude (float, Iterable): amplitude of pulse, defaults to 1
+            length (int, Iterable): time of the pulse, default to configs x180_len_NV
+            cycle (bool): If True, the pulse is inverted during the second cycle performing non-contrast measurements.
         """
+        length = length if length is not None else self.config.x180_len_NV
         command = {
             "type": "pulse",
             "element": element,
@@ -68,15 +91,15 @@ class NVExperiment:
             command["amplitude"] = amplitude
         self.commands.append(command)
 
-    def add_cw_drive(self, element, length, amplitude):
+    def add_cw_drive(self, element, length, amplitude=1):
         """
         Adds a type "microwave" command to the experiment on the
         desired `element`.
 
         Args:
             element (string): Channel to play the pulse on, like "NV" or "C13" in the config
-            length (int): time of pulse in ns
-            amplitude (float): amplitude of pulse
+            length (int, Iterable): time of pulse
+            amplitude (float, Iterable): amplitude of pulse, default to 1
         """
         command = {"type": "cw", "element": element}
         if isinstance(amplitude, Iterable):
@@ -91,23 +114,25 @@ class NVExperiment:
             command["amplitude"] = amplitude
         self.commands.append(command)
 
-    def add_measure_delay(self, length=meas_len_1):
+    def add_measure_delay(self, length=None):
         """
         Adds a type "measure_delay" command to the experiment.
 
         Args:
-            length (int): time of measurement acquisition in ns
+            length (int): time of measurement acquisition, defaults to the config's `meas_len_1`
         """
-        self.measure_delay = length
+        self.measure_delay = length if length is not None else self.config.meas_len_1
 
-    def add_laser(self, mode="laser_ON", channel="AOM1", length=initialization_len_1):
+    def add_laser(self, mode="laser_ON", channel="AOM1", length=None):
         """
         Adds a type "laser" command to the experiment
 
         Args:
-            name (string): command name
-            length (int): time of laser illumination in ns
+            mode (string): Mode of the laser, like "laser_ON" or "laser_OFF"
+            channel (string): Channel to play the laser on, like "AOM1" in the config
+            length (int): time of the laser pulse. Defaults to the config's `initialization_len_1`
         """
+        length = length if length is not None else self.config.initialization_len_1
         self.commands.append({"type": "laser", "mode": mode, "channel": channel, "length": length})
         self.laser_channel = channel
 
@@ -122,8 +147,7 @@ class NVExperiment:
         Adds a type "wait" command to the experiment.
 
         Args:
-            length (int): time to wait in ns
-            variable (bool): If True, the wait time is a variable defined by the loop.
+            length (int, Iterable): time to wait
         """
         if isinstance(length, Iterable):
             scale = self.update_loop(length)
@@ -131,16 +155,18 @@ class NVExperiment:
         else:
             self.commands.append({"type": "wait", "length": length})
 
-    def add_measure(self, mode="readout", channel="SPCM1", meas_len=meas_len_1):
+    def add_measure(self, mode="readout", channel="SPCM1", meas_len=None):
         """
         Adds a type "measure" command to the experiment.
 
         Args:
             mode (string): Measurement mode, like "readout" or "long_readout"
             channel (string): Channel to measure on, like "SPCM1" in the config
-            meas_len (int): time of measurement acquisition in ns
+            meas_len (int): time of measurement acquisition. Defaults to the config's `meas_len_1`
         """
+        meas_len = meas_len if meas_len is not None else self.config.meas_len_1
         self.commands.append({"type": "measure", "channel": channel, "mode": mode, "meas_len": meas_len})
+
         if self.measure_len is None:
             self.measure_len = meas_len
             self.measure_mode = mode
@@ -154,7 +180,7 @@ class NVExperiment:
 
         Args:
             element (string): Name of the element to update the frequency of
-            freq_list (array): Array of frequencies to update the element to
+            freq_list (Iterable): Array of frequencies to update the element to
         """
         self.commands.append({"type": "update_frequency", "element": element})
         self.update_loop(freq_list)
@@ -165,6 +191,8 @@ class NVExperiment:
         that the experiment will run over. If the variable vector is already defined, this
         function will check that the new vector is consistent with the previous one by determining
         if the new vector is a constant multiple of the old one.
+
+        For internal use only - will have dramatic mutation side effects otherwise.
 
         Args:
             var_vec (array): Array of values for the variable in the experiment
@@ -201,17 +229,19 @@ class NVExperiment:
         """
         self.initialize = True
 
-    def setup_cw_odmr(self, f_vec, readout_len=long_meas_len_1, wait_time=1_000, amplitude=1):  # vector of frequencies
+    def setup_cw_odmr(self, f_vec, readout_len=None, wait_time=1_000, amplitude=1):  # vector of frequencies
         """
         A pre-fab collection of commands to run a continuous wave ODMR experiment.
 
         Args:
             f_vec (array): Array of frequencies to sweep over
-            readout_len (int): time of measurement acquisition in ns
+            readout_len (int): time of measurement acquisition. Defaults to the config's `long_meas_len_1`
             wait_time (int, optional): Wait time after CW before readout. Should exceed metastable state lifetime.
                 Defaults to 1_000.
             amplitude (int, optional): Amplitude of the microwave drive. Defaults to 1.
         """
+        readout_len = readout_len if readout_len is not None else self.config.long_meas_len_1
+
         self.add_align()
         self.add_frequency_update("NV", f_vec)
 
@@ -292,7 +322,7 @@ class NVExperiment:
         within a qua program.
 
         """
-        wait(wait_between_runs)
+        wait(self.config.wait_between_runs)
         align()
 
         play("x180" * amp(pi_amp), "NV")  # Pi-pulse toggle
@@ -306,7 +336,7 @@ class NVExperiment:
         measure(self.measure_mode, self.measure_channel, None, time_tagging.analog(times, self.measure_len, counts))
 
         save(counts, counts_st)  # save counts
-        wait(wait_between_runs, self.laser_channel)
+        wait(self.config.wait_between_runs, self.laser_channel)
 
     def create_experiment(self, n_avg, measure_contrast):
         """
@@ -349,7 +379,7 @@ class NVExperiment:
             # start the experiment
             if self.initialize:
                 play("laser_ON", self.laser_channel)
-                wait(wait_for_initialization, self.laser_channel)
+                wait(self.config.wait_for_initialization, self.laser_channel)
 
             # turn on microwave
             sg384_NV.set_amplitude(NV_LO_amp)
@@ -376,7 +406,7 @@ class NVExperiment:
                         self._reference_counts(times, counts_ref1, counts_ref1_st, pi_amp=1)
 
                     # always end with a wait and saving the number of iterations
-                    wait(wait_between_runs)
+                    wait(self.config.wait_between_runs)
                 save(n, n_st)
 
             # turn off microwave after experiment concludes
@@ -413,7 +443,7 @@ class NVExperiment:
 
         expt = self.create_experiment(n_avg=n_avg, measure_contrast=measure_contrast)
         simulation_config = SimulationConfig(duration=sim_length)  # In clock cycles = 4ns
-        job = self.qmm.simulate(config, expt, simulation_config)
+        job = self.qmm.simulate(self.config.config, expt, simulation_config)
         job.get_simulated_samples().con1.plot()
         plt.show()
         return job
@@ -441,7 +471,7 @@ class NVExperiment:
         expt = self.create_experiment(n_avg=n_avg, measure_contrast=measure_contrast)
 
         # Open the quantum machine
-        qm = self.qmm.open_qm(config)
+        qm = self.qmm.open_qm(self.config.config)
 
         # Send the QUA program to the OPX, which compiles and executes it
         job = qm.execute(expt)
@@ -532,13 +562,13 @@ class NVExperiment:
             filename (string): Path to the JSON file to save, defaults to a timestamped filename if
                 none is provided
         """
-        attributes = {k: v for k, v in self.__dict__.items() if k != "qmm"}
         if filename is None:
             filename = f"expt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
         try:
             with open(filename, "w") as f:
-                json.dump(attributes, f, cls=NumpyEncoder)
+                attributes = {k: v for k, v in self.__dict__.items() if k != "qmm"}
+                json.dump(attributes, f, indent=4, cls=NumpyEncoder)
         except (OSError, IOError) as e:
             print(f"Error saving file: {e}")
 

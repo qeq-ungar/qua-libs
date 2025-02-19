@@ -100,8 +100,6 @@ class ConfigNV:
         self.mw_port1 = "TCPIP0::18.25.11.6::5025::SOCKET"  # NV channel
         self.mw_port2 = "TCPIP0::18.25.11.5::5025::SOCKET"  # X channel
 
-        self.devices = {"qmm": None, "mw1": None, "mw2": None}
-
         # Frequencies
         self.NV_IF_freq = 40 * u.MHz
         self.NV_LO_freq = 2.83 * u.GHz
@@ -373,3 +371,6 @@ class ConfigNV:
                 ],
             },
         }
+
+    def __repr__(self):
+        return json.dumps(self.config, indent=4, cls=NumpyEncoder)
