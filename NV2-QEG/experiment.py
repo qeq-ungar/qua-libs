@@ -62,9 +62,8 @@ class NVExperiment:
         self.y_axis_label = "Intensity [kcps]"
         self.plot_title = "Measurement Results"
 
-         # store the config
+        # store the config
         self.config = config if config is not None else ConfigNV2()
-
 
     def add_pulse(self, name, element, amplitude=1, length=None, cycle=False):
         """
@@ -238,8 +237,7 @@ class NVExperiment:
         self.initialize = True
         self.laser_channel = channel
 
-
-    def setup_cw_odmr(self, f_vec, readout_len=None, wait_time=1_000, amplitude=1): 
+    def setup_cw_odmr(self, f_vec, readout_len=None, wait_time=1_000, amplitude=1):
         """
         Sequence of commands to run a continuous wave ODMR experiment.
 
@@ -295,13 +293,13 @@ class NVExperiment:
         """
 
         self.add_initialization(channel="AOM1")
-        self.add_pulse("x180", "NV", amplitude=a_vec, length=x180_len_NV)
+        self.add_pulse("x180", "NV", amplitude=a_vec, length=self.config.x180_len_NV)
         self.add_align()
         self.add_laser(mode="laser_ON", channel="AOM1")
         self.add_measure(channel="SPCM1")
 
         # for plotting results
-        self.x_axis_scale = x180_amp_NV
+        self.x_axis_scale = self.config.x180_amp_NV
         self.x_axis_label = "Rabi pulse amplitude [V]"
         self.plot_title = "Power Rabi"
 
@@ -335,7 +333,7 @@ class NVExperiment:
     #     self.x_axis_label = "Rabi pulse amplitude [V]"
     #     self.plot_title = "Power Rabi"
 
-    def setup_pulsed_odmr(self, f_vec=np.arange(60 * u.MHz, 100 * u.MHz, 1 * u.MHz)):
+    def setup_pulsed_odmr(self, f_vec=np.arange(60, 100, 1) * u.MHz):
         """
         Sequence of commands to run a Rabi experiment sweeping time of MW.
 
@@ -350,11 +348,11 @@ class NVExperiment:
         self.x_axis_label = "MW frequency [MHz]"
         self.plot_title = "Pulsed ODMR"
 
-    def rabi_sequence(self, frequency=[NV_IF_freq], amplitude=1, length=x180_len_NV):
+    def rabi_sequence(self, frequency=None, amplitude=1, length=None):
 
-        if len(frequency) > 1:
+        if frequency is not None:
             self.add_frequency_update("NV", frequency)
-
+        length = length if length is not None else self.config.x180_len_NV
         self.add_initialization(channel="AOM1")
         self.add_pulse("x180", "NV", amplitude=amplitude, length=length)
         self.add_align()
@@ -567,13 +565,6 @@ class NVExperiment:
         self.config.enable_mw1()
         self.config.enable_mw2()
 
-        # turn on microwave
-        sg384_NV.set_amplitude(NV_LO_amp)
-        sg384_NV.set_frequency(NV_LO_freq)
-        sg384_NV.ntype_on()
-        sg384_NV.do_set_Modulation_State("ON")
-        sg384_NV.do_set_modulation_type("IQ")
-
         # Send the QUA program to the OPX, which compiles and executes it
         job = qm.execute(expt)
 
@@ -643,16 +634,13 @@ class NVExperiment:
         self.config.disable_mw1()
         self.config.disable_mw2()
 
+        # store the final results
         self.counts0 = counts0
         self.counts_ref0 = counts_ref0
         if not measure_contrast:
             self.counts1 = counts1
             self.counts_ref1 = counts_ref1
         self.iteration = iteration
-
-        # turn off microwave after experiment concludes
-        sg384_NV.ntype_off()
-        sg384_NV.do_set_Modulation_State("OFF")
 
     def save(self, filename=None):
         """
