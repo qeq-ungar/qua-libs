@@ -44,7 +44,7 @@ class ConfigNV:
 
         # do not save control classes, and prepare to update the configuration dictionary
         # whenever we make any changes to this object
-        self._dns = ["qmm"]
+        self._dns = ["qmm", "_ConfigNV2__initialized"]
         self.__initialized = True
 
     def enable_mw1(self):
@@ -69,7 +69,7 @@ class ConfigNV:
 
         try:
             with open(filename, "w") as f:
-                json.dump(attributes, f, cls=NumpyEncoder)
+                json.dump(attributes, f, cls=NumpyEncoder, indent=4)
         except (OSError, IOError) as e:
             print(f"Error saving file: {e}")
 

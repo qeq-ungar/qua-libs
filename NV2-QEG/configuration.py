@@ -16,12 +16,12 @@ class ConfigNV2(ConfigNV):
 
         # connect to hardware
         self.qmm = QuantumMachinesManager(host=self.qop_ip, cluster_name=self.cluster_name, octave=self.octave_config)
-        self.SG384_NV = SG384Control(self.mw_port1)
-        self.SG384_X = SG384Control(self.mw_port2)
+        # self.SG384_NV = SG384Control(self.mw_port1)
+        # self.SG384_X = SG384Control(self.mw_port2)
 
         # do not save control classes, and prepare to update the configuration dictionary
         # whenever we make any changes to this object
-        self._dns = ["qmm", "SG384_NV", "SG384_X"]
+        self._dns = ["qmm", "SG384_NV", "SG384_X", "_ConfigNV2__initialized"]
         self.update_config()
         self.__initialized = True
 
