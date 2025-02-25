@@ -35,12 +35,12 @@ qop_port = None  # Write the QOP port if version < QOP220
 octave_config = None
 
 # Frequencies
-NV_IF_freq = 40 * u.MHz
-NV_LO_freq = 2.83 * u.GHz
+NV_IF_freq = (77.80) * u.MHz
+NV_LO_freq = 2.79 * u.GHz
 NV_LO_amp = -19  # in dBm
 
 # Pulses lengths
-initialization_len_1 = 2000 * u.ns
+initialization_len_1 = 2_000 * u.ns
 meas_len_1 = 400 * u.ns
 long_meas_len_1 = 5_000 * u.ns
 
@@ -49,15 +49,15 @@ meas_len_2 = 500 * u.ns
 long_meas_len_2 = 5_000 * u.ns
 
 # Relaxation time from the metastable state to the ground state after during initialization
-relaxation_time = 300 * u.ns
+relaxation_time = 300 * u.ns #in ns
 wait_for_initialization = 2 * relaxation_time
 
 # MW parameters
-mw_amp_NV = 0.2  # in units of volts
-mw_len_NV = 100 * u.ns
+mw_amp_NV = 0.25  # in units of volts
+mw_len_NV = 500 * u.ns
 
-x180_amp_NV = 0.1  # in units of volts
-x180_len_NV = 32 * u.ns  # in units of ns
+x180_amp_NV = 0.229  # in units of volts
+x180_len_NV = 60 * u.ns  # in units of ns
 
 x90_amp_NV = x180_amp_NV / 2  # in units of volts
 x90_len_NV = x180_len_NV  # in units of ns
@@ -80,7 +80,7 @@ mw_delay = 0 * u.ns
 rf_delay = 0 * u.ns
 
 
-wait_between_runs = 500 * u.ns
+wait_between_runs = 500 *u.ns
 
 config = {
     "version": 1,
