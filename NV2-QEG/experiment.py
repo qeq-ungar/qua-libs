@@ -37,7 +37,7 @@ matplotlib.use("TkAgg")
 
 
 class NVExperiment:
-    def __init__(self, config=ConfigNV2()):
+    def __init__(self, config=None):
         # containers for commands
         self.var_vec = None
         self.commands = []
@@ -57,7 +57,7 @@ class NVExperiment:
         self.iteration = None
 
         # store the config
-        self.config = config
+        self.config = config if config is not None else ConfigNV2()
 
     def add_pulse(self, name, element, amplitude=1, length=None, cycle=False):
         """
@@ -290,7 +290,7 @@ class NVExperiment:
                         name = name[1:]
                     else:
                         name = "-" + name
-                play(name * amp(amplitude), command["element"], duration=length)
+                play(name * amp(amplitude), command["element"], duration=length * u.ns)
 
             case "cw":
                 amplitude = command.get("amplitude", var * scale)
@@ -433,7 +433,7 @@ class NVExperiment:
 
         expt = self.create_experiment(n_avg=n_avg, measure_contrast=measure_contrast)
         simulation_config = SimulationConfig(duration=sim_length)  # In clock cycles = 4ns
-        job = self.qmm.simulate(self.config.config, expt, simulation_config)
+        job = self.config.qmm.simulate(self.config.config, expt, simulation_config)
         job.get_simulated_samples().con1.plot()
         plt.show()
         return job
@@ -461,7 +461,7 @@ class NVExperiment:
         expt = self.create_experiment(n_avg=n_avg, measure_contrast=measure_contrast)
 
         # Open the quantum machine
-        qm = self.qmm.open_qm(self.config.config)
+        qm = self.config.qmm.open_qm(self.config.config)
 
         # turn on the microwave control
         self.config.enable_mw1()
