@@ -51,6 +51,7 @@ class NVExperiment(Experiment):
         self.add_measure(channel="SPCM1")
 
         # for plotting results
+        self.file_prefix = "time_rabi"
         self.x_axis_scale = 4
         self.x_axis_label = "Rabi pulse duration [ns]"
         self.plot_title = "Time Rabi"

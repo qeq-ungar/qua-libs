@@ -65,6 +65,9 @@ class Experiment:
         # store the config
         self.config = config if config is not None else ConfigNV()
 
+        # saving defaults
+        self.file_prefix = "expt"
+
     def add_pulse(self, name, element, amplitude=1, length=None, cycle=False):
         """
         Adds a type "microwave" command to the experiment on the
@@ -528,7 +531,9 @@ class Experiment:
             filename (string): Path to the JSON file to save, defaults to a timestamped filename if
                 none is provided
         """
-        filename = f"expt_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json" if filename is None else filename
+        filename = (
+            self.file_prefix + f"_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json" if filename is None else filename
+        )
         try:
             with open(filename, "w") as f:
                 attributes = {k: v for k, v in self.__dict__.items() if k != "config"}
