@@ -2,7 +2,7 @@
 import numpy as np
 
 # user defined classes
-from configuration import u
+from config import u
 from base_experiment import Experiment
 
 

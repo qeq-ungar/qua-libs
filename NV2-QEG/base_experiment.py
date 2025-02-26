@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 # user defined classes
 from utils import NumpyEncoder
-from configuration import ConfigNV2, u
+from config import ConfigNV, u
 
 # Quantum machines imports
 from qm import SimulationConfig
@@ -63,7 +63,7 @@ class Experiment:
         self.plot_title = "Measurement Results"
 
         # store the config
-        self.config = config if config is not None else ConfigNV2()
+        self.config = config if config is not None else ConfigNV()
 
     def add_pulse(self, name, element, amplitude=1, length=None, cycle=False):
         """
@@ -528,27 +528,33 @@ class Experiment:
             filename (string): Path to the JSON file to save, defaults to a timestamped filename if
                 none is provided
         """
-        if filename is None:
-            filename = f"expt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-
+        filename = f"expt_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json" if filename is None else filename
         try:
             with open(filename, "w") as f:
-                attributes = {k: v for k, v in self.__dict__.items() if k != "qmm"}
+                attributes = {k: v for k, v in self.__dict__.items() if k != "config"}
+                attributes["config"] = self.config.to_dict()
                 json.dump(attributes, f, indent=4, cls=NumpyEncoder)
         except (OSError, IOError) as e:
             print(f"Error saving file: {e}")
 
-    def load(self, filename):
+    @staticmethod
+    def load(filename):
         """
         Loads the experiment configuration from a JSON file.
 
         Args:
             filename (string): Path to the JSON file to load
         """
+        expt = Experiment.__new__(Experiment)
         try:
             with open(filename, "r") as f:
                 attributes = json.load(f)
             for k, v in attributes.items():
-                self.__dict__[k] = v
+                if k == "config":
+                    expt.config = ConfigNV.from_dict(v)
+                else:
+                    expt.__dict__[k] = v
         except (OSError, IOError, FileNotFoundError) as e:
             print(f"Error loading file: {e}")
+
+        return expt

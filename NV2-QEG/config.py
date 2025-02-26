@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 import numpy as np
 
-from utils import NumpyEncoder
+from utils import NumpyEncoder, can_save_json
 from SG384 import SG384Control
 
 
@@ -31,45 +31,70 @@ def IQ_imbalance(g, phi):
 class ConfigNV:
     __initialized = False
 
-    def __init__(self, filename=None):
+    def __init__(self, filename=None, connect_qmm=True, connect_mw1=True, connect_mw2=True):
         # load parameters and addresses
         if filename is None:
-            self.load_global_default()
-            self.load_settup_detault()
+            self.load_default()
+            filename = f"config_{datetime.now().strftime('%Y%m%d')}.json"
         else:
             self.load(filename)
+        self.filename = filename
 
-        # connect to hardware
-        self.qmm = QuantumMachinesManager(host=self.qop_ip, cluster_name=self.cluster_name, octave=self.octave_config)
-
-        # do not save control classes, and prepare to update the configuration dictionary
-        # whenever we make any changes to this object
-        self._dns = ["qmm", "_ConfigNV2__initialized"]
+        self.connect(qmm=connect_qmm, mw1=connect_mw1, mw2=connect_mw2)
+        self.update_config()
         self.__initialized = True
 
+    def connect(self, qmm=True, mw1=True, mw2=True):
+        if qmm:
+            self.qmm = QuantumMachinesManager(
+                host=self.qop_ip, cluster_name=self.cluster_name, octave=self.octave_config
+            )
+        if mw1:
+            self.SG384_NV = SG384Control(self.mw_port1)
+        if mw2:
+            self.SG384_X = SG384Control(self.mw_port2)
+
     def enable_mw1(self):
-        pass
+        """
+        Enables the microwave source for the NV center.
+        """
+        self.SG384_NV.set_amplitude(self.NV_LO_amp)
+        self.SG384_NV.set_frequency(self.NV_LO_freq)
+        self.SG384_NV.rf_on()
+        self.SG384_NV.do_set_Modulation_State("ON")
+        self.SG384_NV.do_set_modulation_type("IQ")
 
     def disable_mw1(self):
-        pass
+        """
+        Disables the microwave source for the NV center.
+        """
+        self.SG384_NV.rf_off()
 
     def enable_mw2(self):
-        pass
+        """
+        Enable the microwave source for the dark spins
+        """
+        self.SG384_X.set_amplitude(self.X_LO_amp)
+        self.SG384_X.set_frequency(self.X_LO_freq)
+        self.SG384_X.rf_on()
+        self.SG384_X.do_set_Modulation_State("ON")
+        self.SG384_X.do_set_modulation_type("IQ")
 
     def disable_mw2(self):
-        pass
+        """
+        Disables the microwave source for the dark spins.
+        """
+        self.SG384_X.rf_off()
 
     def save(self, filename=None):
         """
         Saves the configuration to a JSON file.
         """
-        attributes = {k: v for k, v in self.__dict__.items() if k not in self._dns}
-        if filename is None:
-            filename = f"config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        self.filename = filename if filename is not None else self.filename
 
         try:
-            with open(filename, "w") as f:
-                json.dump(attributes, f, cls=NumpyEncoder, indent=4)
+            with open(self.filename, "w") as f:
+                json.dump(self.to_dict(), f, cls=NumpyEncoder, indent=4)
         except (OSError, IOError) as e:
             print(f"Error saving file: {e}")
 
@@ -84,8 +109,33 @@ class ConfigNV:
             for k, v in attributes.items():
                 self.__dict__[k] = v
             self.__initialized = True
+            self.filename = filename
         except (OSError, IOError, FileNotFoundError) as e:
             print(f"Error loading file: {e}")
+
+    def to_dict(self):
+        """
+        Returns the configuration as a dictionary.
+        """
+        return {k: v for k, v in self.__dict__.items() if can_save_json(v)}
+
+    @staticmethod
+    def from_dict(d):
+        """
+        Creates a ConfigNV object from a dictionary.
+        """
+        config = ConfigNV(connect_mw1=False, connect_mw2=False, connect_qmm=False)
+        config.__initialized = False
+        for k, v in d.items():
+            config.__dict__[k] = v
+        config.__initialized = True
+        config.update_config()
+        return config
+
+    def __repr__(self):
+        return "\n".join(["ConfigNV Interface for QM", json.dumps(self.to_dict(), cls=NumpyEncoder, indent=4)])
+
+    __str__ = __repr__
 
     def __setattr__(self, name, value):
         """
@@ -99,25 +149,24 @@ class ConfigNV:
         else:
             self.__dict__[name] = value
 
-    def load_settup_detault(self):
-        """
-        Loads the default configuration for the NV2-QEG experiment.
-        """
-        pass
-
-    def load_global_default(self):
+    def load_default(self):
         """
         Loads the default configuration for an NV experiment.
         """
+        # communication addresses
         self.qop_ip = "18.25.10.244"
         self.cluster_name = "QM_NV2"
         self.qop_port = None  # Write the QOP port if version < QOP220
         self.octave_config = None  # Set octave_config to None if no octave are present
+        self.mw_port1 = "TCPIP0::18.25.11.6::5025::SOCKET"
+        self.mw_port2 = "TCPIP0::18.25.11.5::5025::SOCKET"
 
         # Frequencies
         self.NV_IF_freq = 40 * u.MHz
         self.NV_LO_freq = 2.83 * u.GHz
         self.NV_LO_amp = -19  # in dBm
+        self.X_LO_amp = -19
+        self.X_LO_freq = 2.83 * u.GHz
 
         # Pulses lengths
         self.initialization_len_1 = 2000 * u.ns
@@ -385,6 +434,3 @@ class ConfigNV:
                 ],
             },
         }
-
-    def __repr__(self):
-        return json.dumps(self.config, indent=4, cls=NumpyEncoder)
